@@ -317,16 +317,16 @@ export const Questions: React.FC = () => {
 
         {/* Forms Modal */}
         {isModalOpen && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <div className="bg-slate-800 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl my-8">
-              <div className="sticky top-0 bg-slate-800 p-6 border-b border-slate-700 flex justify-between items-center rounded-t-2xl z-10">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-slate-800 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl my-8 flex flex-col max-h-[calc(100vh-4rem)]">
+              <div className="flex-shrink-0 bg-slate-800 p-6 border-b border-slate-700 flex justify-between items-center rounded-t-2xl z-10">
                 <h3 className="text-lg font-semibold">{editingId ? 'Edit Question' : 'New Question'}</h3>
                 <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white transition-colors">
                   <X size={20} />
                 </button>
               </div>
               
-              <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-1">Subject</label>
