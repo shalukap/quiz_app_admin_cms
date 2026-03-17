@@ -26,6 +26,7 @@ interface Question {
   correctIndex: number;
   imageUrl?: string;
   optionImages?: string[]; // Added
+  timeLimit?: number; // Added
 }
 
 export const Questions: React.FC = () => {
@@ -48,7 +49,8 @@ export const Questions: React.FC = () => {
     options: ['', '', '', ''],
     correctIndex: 0,
     imageUrl: '',
-    optionImages: ['', '', '', ''] // Added
+    optionImages: ['', '', '', ''], // Added
+    timeLimit: 30 // Added
   });
 
   const fetchSubjects = async () => {
@@ -181,7 +183,8 @@ export const Questions: React.FC = () => {
         options: [...question.options],
         correctIndex: question.correctIndex,
         imageUrl: question.imageUrl || '',
-        optionImages: question.optionImages || ['', '', '', '']
+        optionImages: question.optionImages || ['', '', '', ''],
+        timeLimit: question.timeLimit || 30 // Added
       });
     } else {
       setEditingId(null);
@@ -192,7 +195,8 @@ export const Questions: React.FC = () => {
         options: ['', '', '', ''],
         correctIndex: 0,
         imageUrl: '',
-        optionImages: ['', '', '', '']
+        optionImages: ['', '', '', ''],
+        timeLimit: 30 // Added
       });
     }
     setIsModalOpen(true);
@@ -272,10 +276,13 @@ export const Questions: React.FC = () => {
                     </div>
                   )}
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                    <span className="bg-slate-700 text-slate-300 text-xs px-2 py-1 rounded font-medium">Q.{qIndex + 1}</span>
-                    <h3 className="text-lg font-medium text-white">{question.text}</h3>
-                  </div>
+                    <div className="flex items-center gap-3 mb-2 flex-wrap">
+                      <span className="bg-slate-700 text-slate-300 text-xs px-2 py-1 rounded font-medium">Q.{qIndex + 1}</span>
+                      <h3 className="text-lg font-medium text-white">{question.text}</h3>
+                      <span className="bg-blue-600/10 text-blue-400 text-xs px-2 py-1 rounded font-medium flex items-center gap-1">
+                        {question.timeLimit || 30} sec
+                      </span>
+                    </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
                     {question.options.map((opt, idx) => (
                       <div 
@@ -327,7 +334,7 @@ export const Questions: React.FC = () => {
               </div>
               
               <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-1">Subject</label>
                     <select
@@ -347,6 +354,18 @@ export const Questions: React.FC = () => {
                     >
                       {[1,2,3,4,5,6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Grade {g}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Time Limit (sec)</label>
+                    <input
+                      type="number"
+                      required
+                      value={formData.timeLimit}
+                      onChange={e => setFormData({...formData, timeLimit: parseInt(e.target.value)})}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                      min={5}
+                      max={300}
+                    />
                   </div>
                 </div>
 
