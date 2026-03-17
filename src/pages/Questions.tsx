@@ -27,6 +27,7 @@ interface Question {
   imageUrl?: string;
   optionImages?: string[]; // Added
   timeLimit?: number; // Added
+  medium?: string; // Added
 }
 
 export const Questions: React.FC = () => {
@@ -38,6 +39,7 @@ export const Questions: React.FC = () => {
   // Filters
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
   const [selectedGrade, setSelectedGrade] = useState<number>(10);
+  const [selectedMedium, setSelectedMedium] = useState<string>(''); // Added
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -50,7 +52,8 @@ export const Questions: React.FC = () => {
     correctIndex: 0,
     imageUrl: '',
     optionImages: ['', '', '', ''], // Added
-    timeLimit: 30 // Added
+    timeLimit: 30, // Added
+    medium: 'English' // Added
   });
 
   const fetchSubjects = async () => {
@@ -125,11 +128,16 @@ export const Questions: React.FC = () => {
     if (!selectedSubjectId) return;
     setLoading(true);
     try {
-      const q = query(
+      let q = query(
         collection(db, 'questions'),
         where('subjectId', '==', selectedSubjectId),
         where('grade', '==', selectedGrade)
       );
+      
+      if (selectedMedium) {
+        q = query(q, where('medium', '==', selectedMedium));
+      }
+
       const querySnapshot = await getDocs(q);
       const data = querySnapshot.docs.map(doc => ({
         id: doc.id,
@@ -145,7 +153,7 @@ export const Questions: React.FC = () => {
 
   useEffect(() => {
     fetchQuestions();
-  }, [selectedSubjectId, selectedGrade]);
+  }, [selectedSubjectId, selectedGrade, selectedMedium]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,27 +184,36 @@ export const Questions: React.FC = () => {
   const openModal = (question?: Question) => {
     if (question) {
       setEditingId(question.id);
+      const needs5 = question.grade === 12 || question.grade === 13;
+      const opts = [...question.options];
+      const optImgs = question.optionImages ? [...question.optionImages] : ['', '', '', ''];
+      while(opts.length < (needs5 ? 5 : 4)) opts.push('');
+      while(optImgs.length < (needs5 ? 5 : 4)) optImgs.push('');
+      
       setFormData({
         subjectId: question.subjectId,
         grade: question.grade,
         text: question.text,
-        options: [...question.options],
+        options: opts,
         correctIndex: question.correctIndex,
         imageUrl: question.imageUrl || '',
-        optionImages: question.optionImages || ['', '', '', ''],
-        timeLimit: question.timeLimit || 30 // Added
+        optionImages: optImgs,
+        timeLimit: question.timeLimit || 30,
+        medium: question.medium || 'English'
       });
     } else {
       setEditingId(null);
+      const needs5 = selectedGrade === 12 || selectedGrade === 13;
       setFormData({
         subjectId: selectedSubjectId,
         grade: selectedGrade,
         text: '',
-        options: ['', '', '', ''],
+        options: Array(needs5 ? 5 : 4).fill(''),
         correctIndex: 0,
         imageUrl: '',
-        optionImages: ['', '', '', ''],
-        timeLimit: 30 // Added
+        optionImages: Array(needs5 ? 5 : 4).fill(''),
+        timeLimit: 30,
+        medium: selectedMedium || 'English'
       });
     }
     setIsModalOpen(true);
@@ -241,10 +258,22 @@ export const Questions: React.FC = () => {
               onChange={(e) => setSelectedGrade(parseInt(e.target.value))}
               className="bg-slate-900 border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
             >
-              {[1,2,3,4,5,6,7,8,9,10,11,12].map(g => (
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(g => (
                 <option key={g} value={g}>Grade {g}</option>
               ))}
             </select>
+
+            <select
+              value={selectedMedium}
+              onChange={(e) => setSelectedMedium(e.target.value)}
+              className="bg-slate-900 border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
+            >
+              <option value="">All Mediums</option>
+              <option value="English">English</option>
+              <option value="Sinhala">Sinhala</option>
+              <option value="Tamil">Tamil</option>
+            </select>
+
             <button
               onClick={() => openModal()}
               disabled={!selectedSubjectId}
@@ -334,12 +363,12 @@ export const Questions: React.FC = () => {
               </div>
               
               <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-1">Subject</label>
                     <select
                       value={formData.subjectId}
-                      onChange={e => setFormData({...formData, subjectId: e.target.value})}
+                      onChange={e => setFormData({ ...formData, subjectId: e.target.value })}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                     >
                       {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -349,10 +378,31 @@ export const Questions: React.FC = () => {
                     <label className="block text-sm font-medium text-slate-300 mb-1">Grade</label>
                     <select
                       value={formData.grade}
-                      onChange={e => setFormData({...formData, grade: parseInt(e.target.value)})}
+                      onChange={e => {
+                        const newGrade = parseInt(e.target.value);
+                        const needs5 = newGrade === 12 || newGrade === 13;
+                        setFormData(prev => {
+                          let opts = [...prev.options];
+                          let optImgs = [...prev.optionImages];
+                          if (needs5 && opts.length < 5) {
+                            opts.push('');
+                            optImgs.push('');
+                          } else if (!needs5 && opts.length > 4) {
+                            opts = opts.slice(0, 4);
+                            optImgs = optImgs.slice(0, 4);
+                          }
+                          return {
+                            ...prev,
+                            grade: newGrade,
+                            options: opts,
+                            optionImages: optImgs,
+                            correctIndex: prev.correctIndex >= opts.length ? 0 : prev.correctIndex
+                          };
+                        });
+                      }}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                     >
-                      {[1,2,3,4,5,6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Grade {g}</option>)}
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(g => <option key={g} value={g}>Grade {g}</option>)}
                     </select>
                   </div>
                   <div>
@@ -361,11 +411,23 @@ export const Questions: React.FC = () => {
                       type="number"
                       required
                       value={formData.timeLimit}
-                      onChange={e => setFormData({...formData, timeLimit: parseInt(e.target.value)})}
+                      onChange={e => setFormData({ ...formData, timeLimit: parseInt(e.target.value) })}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                       min={5}
                       max={300}
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Medium</label>
+                    <select
+                      value={formData.medium}
+                      onChange={e => setFormData({ ...formData, medium: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    >
+                      <option value="English">English</option>
+                      <option value="Sinhala">Sinhala</option>
+                      <option value="Tamil">Tamil</option>
+                    </select>
                   </div>
                 </div>
 

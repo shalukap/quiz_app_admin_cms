@@ -10,29 +10,36 @@ interface Subject {
   iconName: string;
   colorHex: string;
   grade: number;
+  medium?: string; // Added
 }
 
 export const Subjects: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Grade Filter State
+
+  // Grade & Medium Filter State
   const [selectedGrade, setSelectedGrade] = useState<number>(10);
+  const [selectedMedium, setSelectedMedium] = useState<string>(''); // Added
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ name: '', iconName: '', colorHex: '#2563EB', grade: 10 });
+  const [formData, setFormData] = useState({ name: '', iconName: '', colorHex: '#2563EB', grade: 10, medium: 'English' }); // Updated
   const [error, setError] = useState<string | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
 
   const fetchSubjects = async () => {
     setLoading(true);
     try {
-      const q = query(
+      let q = query(
         collection(db, 'subjects'),
         where('grade', '==', selectedGrade)
       );
+      
+      if (selectedMedium) {
+        q = query(q, where('medium', '==', selectedMedium));
+      }
+
       const querySnapshot = await getDocs(q);
       const data = querySnapshot.docs.map(doc => ({
         id: doc.id,
@@ -89,19 +96,21 @@ export const Subjects: React.FC = () => {
     setError(null);
     if (subject) {
       setEditingId(subject.id);
-      setFormData({ 
-        name: subject.name, 
-        iconName: subject.iconName, 
+      setFormData({
+        name: subject.name,
+        iconName: subject.iconName,
         colorHex: subject.colorHex,
-        grade: subject.grade || selectedGrade 
+        grade: subject.grade || selectedGrade,
+        medium: subject.medium || 'English'
       });
     } else {
       setEditingId(null);
-      setFormData({ 
-        name: '', 
-        iconName: 'menu_book', 
+      setFormData({
+        name: '',
+        iconName: 'menu_book',
         colorHex: '#2563EB',
-        grade: selectedGrade 
+        grade: selectedGrade,
+        medium: selectedMedium || 'English'
       });
     }
     setIsModalOpen(true);
@@ -122,7 +131,7 @@ export const Subjects: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 bg-slate-800 p-2 rounded-xl border border-slate-700">
+          <div className="flex items-center gap-4 bg-slate-800 p-2 rounded-xl border border-slate-700 flex-wrap">
             <div className="flex items-center gap-2 pl-2 text-slate-400">
               <span className="text-sm font-medium">Grade:</span>
             </div>
@@ -131,13 +140,28 @@ export const Subjects: React.FC = () => {
               onChange={(e) => setSelectedGrade(parseInt(e.target.value))}
               className="bg-slate-900 border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
             >
-              {[1,2,3,4,5,6,7,8,9,10,11,12].map(g => (
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(g => (
                 <option key={g} value={g}>Grade {g}</option>
               ))}
             </select>
+
+            <div className="flex items-center gap-2 pl-2 text-slate-400 border-l border-slate-700/50">
+              <span className="text-sm font-medium">Medium:</span>
+            </div>
+            <select
+              value={selectedMedium}
+              onChange={(e) => setSelectedMedium(e.target.value)}
+              className="bg-slate-900 border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
+            >
+              <option value="">All</option>
+              <option value="English">English</option>
+              <option value="Sinhala">Sinhala</option>
+              <option value="Tamil">Tamil</option>
+            </select>
+
             <button
               onClick={() => openModal()}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors ml-auto"
             >
               <Plus size={16} />
               Add Subject
@@ -159,11 +183,11 @@ export const Subjects: React.FC = () => {
             {subjects.map((subject) => (
               <div key={subject.id} className="bg-slate-800 p-6 rounded-2xl border border-slate-700/50 flex flex-col">
                 <div className="flex items-center gap-4 mb-4">
-                  <div 
+                  <div
                     className="w-12 h-12 rounded-xl flex items-center justify-center"
                     style={{ backgroundColor: `${subject.colorHex}20` }}
                   >
-                    <span 
+                    <span
                       className="material-icons"
                       style={{ color: subject.colorHex }}
                     >
@@ -175,7 +199,7 @@ export const Subjects: React.FC = () => {
                     <span className="text-xs text-slate-500 bg-slate-900 px-2 py-0.5 rounded">Grade {subject.grade}</span>
                   </div>
                 </div>
-                
+
                 <div className="mt-auto flex gap-2 pt-4 border-t border-slate-700/50">
                   <button
                     onClick={() => openModal(subject)}
@@ -207,7 +231,7 @@ export const Subjects: React.FC = () => {
                   <X size={20} />
                 </button>
               </div>
-              
+
               <form onSubmit={handleSubmit} className="p-6 space-y-4">
                 {error && (
                   <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm">
@@ -219,10 +243,22 @@ export const Subjects: React.FC = () => {
                     <label className="block text-sm font-medium text-slate-300 mb-1">Grade</label>
                     <select
                       value={formData.grade}
-                      onChange={e => setFormData({...formData, grade: parseInt(e.target.value)})}
+                      onChange={e => setFormData({ ...formData, grade: parseInt(e.target.value) })}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                     >
-                      {[1,2,3,4,5,6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Grade {g}</option>)}
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(g => <option key={g} value={g}>Grade {g}</option>)}
+                    </select>
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Medium</label>
+                    <select
+                      value={formData.medium}
+                      onChange={e => setFormData({ ...formData, medium: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="English">English</option>
+                      <option value="Sinhala">Sinhala</option>
+                      <option value="Tamil">Tamil</option>
                     </select>
                   </div>
                 </div>
@@ -233,19 +269,19 @@ export const Subjects: React.FC = () => {
                     type="text"
                     required
                     value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
+                    onChange={e => setFormData({ ...formData, name: e.target.value })}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                     placeholder="e.g. Mathematics"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Material Icon Name</label>
                   <input
                     type="text"
                     required
                     value={formData.iconName}
-                    onChange={e => setFormData({...formData, iconName: e.target.value})}
+                    onChange={e => setFormData({ ...formData, iconName: e.target.value })}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     placeholder="e.g. functions, science, book"
                   />
@@ -259,14 +295,14 @@ export const Subjects: React.FC = () => {
                       type="color"
                       required
                       value={formData.colorHex}
-                      onChange={e => setFormData({...formData, colorHex: e.target.value})}
+                      onChange={e => setFormData({ ...formData, colorHex: e.target.value })}
                       className="w-12 h-11 rounded bg-slate-900 border border-slate-700 cursor-pointer"
                     />
                     <input
                       type="text"
                       required
                       value={formData.colorHex}
-                      onChange={e => setFormData({...formData, colorHex: e.target.value})}
+                      onChange={e => setFormData({ ...formData, colorHex: e.target.value })}
                       className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none uppercase font-mono text-sm"
                       placeholder="#000000"
                     />
