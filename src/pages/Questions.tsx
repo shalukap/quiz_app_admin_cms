@@ -35,6 +35,7 @@ export const Questions: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadLoading, setUploadLoading] = useState(false); // Added
+  const [geminiLoading, setGeminiLoading] = useState(false);
   
   // Filters
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
@@ -117,6 +118,76 @@ export const Questions: React.FC = () => {
       console.error("Image upload exception", err);
     } finally {
       setUploadLoading(false);
+    }
+  };
+
+  const handleGeminiExtract = async (file: File) => {
+    setGeminiLoading(true);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            resolve(reader.result.split(',')[1]);
+          } else {
+            reject(new Error("Failed to read file"));
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const base64Image = await base64Promise;
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      
+      if (!apiKey) {
+         alert("Gemini API key not found. Please set VITE_GEMINI_API_KEY in .env");
+         setGeminiLoading(false);
+         return;
+      }
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inlineData: { mimeType: file.type, data: base64Image } },
+              { text: "Extract the question text and its options from the attached image. Output only a JSON object with the structure: { \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }. Do not include any descriptive text, header, or markdown formatting." }
+            ]
+          }]
+        })
+      });
+
+      const data = await response.json();
+      const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (textResponse) {
+         try {
+            const cleanText = textResponse.trim().replace(/^```j?s?o?n?\s*/, '').replace(/```$/, '');
+            const result = JSON.parse(cleanText);
+            setFormData(prev => ({
+              ...prev,
+              text: result.text || prev.text,
+              options: result.options ? [
+                ...result.options, 
+                ...Array(Math.max(0, prev.options.length - result.options.length)).fill('')
+              ].slice(0, prev.options.length) : prev.options,
+              correctIndex: result.correctIndex !== undefined && result.correctIndex >= 0 && result.correctIndex < prev.options.length ? result.correctIndex : prev.correctIndex
+            }));
+         } catch (e) {
+            console.error("Failed to parse Gemini response", textResponse, e);
+            alert("Failed to parse extracted text. Please check the image and try again.");
+         }
+      } else {
+         console.error("No response from Gemini", data);
+         alert("No text from image.");
+      }
+    } catch (err) {
+      console.error("Gemini extraction error", err);
+      alert("Error extracting question.");
+    } finally {
+      setGeminiLoading(false);
     }
   };
 
@@ -363,6 +434,40 @@ export const Questions: React.FC = () => {
               </div>
               
               <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
+                {/* Gemini Extraction */}
+                <div className="bg-slate-900/40 p-4 rounded-xl border border-dashed border-slate-700 flex items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-white">Extract Question from Image</h4>
+                    <p className="text-xs text-slate-400">Scan or upload an image to fill form automatically</p>
+                  </div>
+                  <div>
+                    <input
+                      type="file"
+                      id="geminiUpload"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleGeminiExtract(file);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('geminiUpload')?.click()}
+                      disabled={geminiLoading}
+                      className={`inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer ${geminiLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {geminiLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-slate-100" />
+                          Extracting...
+                        </>
+                      ) : 'Scan / Upload'}
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-1">Subject</label>
