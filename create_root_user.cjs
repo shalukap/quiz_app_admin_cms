@@ -2,14 +2,7 @@ const { initializeApp } = require('firebase/app');
 const { getAuth, createUserWithEmailAndPassword } = require('firebase/auth');
 const { getFirestore, doc, setDoc } = require('firebase/firestore');
 
-const firebaseConfig = {
-  apiKey: 'AIzaSyC1eory_0jnHti3Kz06Sf1MCOgk3EOsYC4',
-  appId: '1:1038214637528:web:7a91f8afb8c7fe7c7374ad',
-  messagingSenderId: '1038214637528',
-  projectId: 'quizapp-e7f6f',
-  authDomain: 'quizapp-e7f6f.firebaseapp.com',
-  storageBucket: 'quizapp-e7f6f.firebasestorage.app',
-};
+const firebaseConfig = require('./firebase_config.cjs');
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);

@@ -1,6 +1,7 @@
 const https = require('https');
 
-const apiKey = 'AIzaSyC1eory_0jnHti3Kz06Sf1MCOgk3EOsYC4';
+require('./load_env.cjs');
+const apiKey = process.env.VITE_FIREBASE_API_KEY;
 const email = 'admin@quizbank.com';
 const password = 'adminPassword123';
 
