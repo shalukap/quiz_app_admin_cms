@@ -89,9 +89,9 @@ export const Questions: React.FC = () => {
     setUploadLoading(true);
     try {
       const timestamp = Math.round(new Date().getTime() / 1000);
-      const apiKey = '865369964717118';
-      const apiSecret = 'cXx1dzHrDl9LTndaaf_ztdZJjsk';
-      const cloudName = 'dy3myxhnf';
+      const apiKey = import.meta.env.VITE_CLOUDINARY_API_KEY;
+      const apiSecret = import.meta.env.VITE_CLOUDINARY_API_SECRET;
+      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
       const signature = await sha1(`timestamp=${timestamp}${apiSecret}`);
 
       const formDataCloud = new FormData();
