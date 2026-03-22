@@ -10,7 +10,10 @@ export const Dashboard: React.FC = () => {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-12 bg-slate-800 p-6 rounded-2xl border border-slate-700/50">
           <div>
-            <h1 className="text-2xl font-bold text-white">Quiz Content Manager</h1>
+            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+              Quiz Content Manager
+              <span className="text-sm font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">v1.1</span>
+            </h1>
             <p className="text-slate-400">Logged in as {user?.email}</p>
           </div>
           <button 

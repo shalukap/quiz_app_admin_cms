@@ -3,6 +3,7 @@ import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, query, where } 
 import { db } from '../firebase';
 import { Plus, Edit2, Trash2, X, ChevronLeft, Filter } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import mammoth from 'mammoth';
 
 const sha1 = async (str: string) => {
   const buf = new TextEncoder().encode(str);
@@ -45,6 +46,8 @@ export const Questions: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [extractedQuestions, setExtractedQuestions] = useState<any[]>([]);
+  const [currentExtractedIndex, setCurrentExtractedIndex] = useState<number>(-1);
   const [formData, setFormData] = useState({
     subjectId: '',
     grade: 10,
@@ -124,39 +127,80 @@ export const Questions: React.FC = () => {
   const handleGeminiExtract = async (file: File) => {
     setGeminiLoading(true);
     try {
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          if (typeof reader.result === 'string') {
-            resolve(reader.result.split(',')[1]);
-          } else {
-            reject(new Error("Failed to read file"));
-          }
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const base64Image = await base64Promise;
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      const isDocx = file.name.endsWith('.docx') || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const isPdf = file.type === 'application/pdf';
       
+      let promptText = "Extract the question text and its options from the attached content. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting. Extract all questions present.";
+      let bodyData: any = {};
+
+      if (isDocx) {
+         const arrayBuffer = await file.arrayBuffer();
+         const result = await mammoth.extractRawText({ arrayBuffer });
+         const docText = result.value;
+         
+         if (!docText.trim()) {
+            alert("No text found in the DOCX file.");
+            setGeminiLoading(false);
+            return;
+         }
+
+         promptText = "Extract all question texts and options from the following text. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting.";
+         
+         bodyData = {
+           contents: [{
+             parts: [
+               { text: promptText + "\n\nText:\n" + docText }
+             ]
+           }]
+         };
+      } else {
+         if (isPdf) {
+            promptText = "Extract all question texts and options from the attached PDF document. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting.";
+         }
+
+         const reader = new FileReader();
+         const base64Promise = new Promise<string>((resolve, reject) => {
+           reader.onload = () => {
+             if (typeof reader.result === 'string') {
+               resolve(reader.result.split(',')[1]);
+             } else {
+               reject(new Error("Failed to read file"));
+             }
+           };
+           reader.onerror = reject;
+           reader.readAsDataURL(file);
+         });
+
+         const base64Image = await base64Promise;
+         const mimeType = isPdf ? 'application/pdf' : file.type;
+
+         bodyData = {
+           contents: [{
+             parts: [
+               { inlineData: { mimeType: mimeType, data: base64Image } },
+               { text: promptText }
+             ]
+           }]
+         };
+      }
+
+      if (isPdf && file.size > 50 * 1024 * 1024) {
+         alert("PDF file is too large (max 50MB).");
+         setGeminiLoading(false);
+         return;
+      }
+
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (!apiKey) {
          alert("Gemini API key not found. Please set VITE_GEMINI_API_KEY in .env");
          setGeminiLoading(false);
          return;
       }
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inlineData: { mimeType: file.type, data: base64Image } },
-              { text: "Extract the question text and its options from the attached image. Output only a JSON object with the structure: { \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }. Do not include any descriptive text, header, or markdown formatting." }
-            ]
-          }]
-        })
+        body: JSON.stringify(bodyData)
       });
 
       const data = await response.json();
@@ -166,22 +210,62 @@ export const Questions: React.FC = () => {
          try {
             const cleanText = textResponse.trim().replace(/^```j?s?o?n?\s*/, '').replace(/```$/, '');
             const result = JSON.parse(cleanText);
-            setFormData(prev => ({
-              ...prev,
-              text: result.text || prev.text,
-              options: result.options ? [
-                ...result.options, 
-                ...Array(Math.max(0, prev.options.length - result.options.length)).fill('')
-              ].slice(0, prev.options.length) : prev.options,
-              correctIndex: result.correctIndex !== undefined && result.correctIndex >= 0 && result.correctIndex < prev.options.length ? result.correctIndex : prev.correctIndex
-            }));
+            
+            if (Array.isArray(result) && result.length > 0) {
+               const formattedQuestions = result.map((q: any) => ({
+                  subjectId: formData.subjectId || '',
+                  grade: formData.grade,
+                  text: q.text || '',
+                  options: q.options ? [
+                    ...q.options, 
+                    ...Array(Math.max(0, formData.options.length - q.options.length)).fill('')
+                  ].slice(0, formData.options.length) : Array(formData.options.length).fill(''),
+                  correctIndex: q.correctIndex !== undefined && q.correctIndex >= 0 && q.correctIndex < formData.options.length ? q.correctIndex : -1,
+                  imageUrl: '',
+                  optionImages: Array(formData.options.length).fill(''),
+                  timeLimit: formData.timeLimit,
+                  medium: formData.medium
+               }));
+
+               setExtractedQuestions(formattedQuestions);
+               setCurrentExtractedIndex(0);
+               setFormData(formattedQuestions[0]);
+            } else if (!Array.isArray(result) && result.text) {
+               const formatted = {
+                  subjectId: formData.subjectId || '',
+                  grade: formData.grade,
+                  text: result.text || '',
+                  options: result.options ? [
+                    ...result.options, 
+                    ...Array(Math.max(0, formData.options.length - result.options.length)).fill('')
+                  ].slice(0, formData.options.length) : Array(formData.options.length).fill(''),
+                  correctIndex: result.correctIndex !== undefined && result.correctIndex >= 0 && result.correctIndex < formData.options.length ? result.correctIndex : -1,
+                  imageUrl: '',
+                  optionImages: Array(formData.options.length).fill(''),
+                  timeLimit: formData.timeLimit,
+                  medium: formData.medium
+               };
+               setExtractedQuestions([formatted]);
+               setCurrentExtractedIndex(0);
+               setFormData(formatted);
+            } else {
+               alert("No questions found or invalid format.");
+            }
          } catch (e) {
             console.error("Failed to parse Gemini response", textResponse, e);
-            alert("Failed to parse extracted text. Please check the image and try again.");
+            alert("Failed to parse extracted text. Please check the file and try again.");
          }
       } else {
          console.error("No response from Gemini", data);
-         alert("No text from image.");
+         if (data.error) {
+            alert(`Gemini API Error: ${data.error.message}`);
+         } else if (data.promptFeedback?.blockReason) {
+            alert(`Content Blocked: ${data.promptFeedback.blockReason}`);
+         } else if (data.candidates?.[0]?.finishReason) {
+            alert(`Extraction failed: ${data.candidates[0].finishReason}`);
+         } else {
+            alert("No text found in the file. Full response logged in console.");
+         }
       }
     } catch (err) {
       console.error("Gemini extraction error", err);
@@ -234,7 +318,16 @@ export const Questions: React.FC = () => {
       } else {
         await addDoc(collection(db, 'questions'), formData);
       }
-      setIsModalOpen(false);
+      
+      if (extractedQuestions.length > 0 && currentExtractedIndex < extractedQuestions.length - 1) {
+         const nextIndex = currentExtractedIndex + 1;
+         setCurrentExtractedIndex(nextIndex);
+         setFormData(extractedQuestions[nextIndex]);
+      } else {
+         setIsModalOpen(false);
+         setExtractedQuestions([]);
+         setCurrentExtractedIndex(-1);
+      }
       fetchQuestions();
     } catch (error) {
       console.error('Error saving question:', error);
@@ -253,6 +346,9 @@ export const Questions: React.FC = () => {
   };
 
   const openModal = (question?: Question) => {
+    setExtractedQuestions([]);
+    setCurrentExtractedIndex(-1);
+    
     if (question) {
       setEditingId(question.id);
       const needs5 = question.grade === 12 || question.grade === 13;
@@ -435,15 +531,15 @@ export const Questions: React.FC = () => {
               
               <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
                 {/* Gemini Extraction */}
-                <div className="bg-slate-900/40 p-4 rounded-xl border border-dashed border-slate-700 flex items-center justify-between gap-4">
+                <div className="bg-slate-900/40 p-4 rounded-xl border border-dashed border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div>
-                    <h4 className="text-sm font-semibold text-white">Extract Question from Image</h4>
-                    <p className="text-xs text-slate-400">Scan or upload an image to fill form automatically</p>
+                    <h4 className="text-sm font-semibold text-white">Auto-fill with Gemini AI</h4>
+                    <p className="text-xs text-slate-400">Scan Camera, Upload PDF, or DOCX to populate</p>
                   </div>
-                  <div>
+                  <div className="flex gap-2 w-full sm:w-auto">
                     <input
                       type="file"
-                      id="geminiUpload"
+                      id="geminiCamera"
                       accept="image/*"
                       capture="environment"
                       className="hidden"
@@ -452,21 +548,75 @@ export const Questions: React.FC = () => {
                         if (file) handleGeminiExtract(file);
                       }}
                     />
+                    <input
+                      type="file"
+                      id="geminiUpload"
+                      accept="image/*,application/pdf,.docx"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleGeminiExtract(file);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('geminiCamera')?.click()}
+                      disabled={geminiLoading}
+                      className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-70"
+                    >
+                      Camera
+                    </button>
                     <button
                       type="button"
                       onClick={() => document.getElementById('geminiUpload')?.click()}
                       disabled={geminiLoading}
-                      className={`inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer ${geminiLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-70"
                     >
-                      {geminiLoading ? (
-                        <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-slate-100" />
-                          Extracting...
-                        </>
-                      ) : 'Scan / Upload'}
+                      {geminiLoading ? '...' : 'Upload File'}
                     </button>
                   </div>
                 </div>
+
+                {/* Navigation inside modal for extracted questions */}
+                {extractedQuestions.length > 0 && (
+                  <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-700/50 flex items-center justify-between">
+                    <button
+                      type="button"
+                      disabled={currentExtractedIndex <= 0}
+                      onClick={() => {
+                         const list = [...extractedQuestions];
+                         list[currentExtractedIndex] = { ...formData };
+                         setExtractedQuestions(list);
+                         
+                         const prevIndex = currentExtractedIndex - 1;
+                         setCurrentExtractedIndex(prevIndex);
+                         setFormData(list[prevIndex]);
+                      }}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-sm font-medium text-slate-300">
+                      Question {currentExtractedIndex + 1} of {extractedQuestions.length}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={currentExtractedIndex >= extractedQuestions.length - 1}
+                      onClick={() => {
+                         const list = [...extractedQuestions];
+                         list[currentExtractedIndex] = { ...formData };
+                         setExtractedQuestions(list);
+
+                         const nextIndex = currentExtractedIndex + 1;
+                         setCurrentExtractedIndex(nextIndex);
+                         setFormData(list[nextIndex]);
+                      }}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-4 gap-4">
                   <div>

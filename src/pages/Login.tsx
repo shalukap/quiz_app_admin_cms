@@ -34,8 +34,9 @@ export const Login: React.FC = () => {
             <BookOpen className="w-8 h-8 text-white" />
           </div>
         </div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
+        <h2 className="mt-6 text-center text-3xl font-extrabold text-white flex items-center justify-center gap-2">
           Quiz Admin Portal
+          <span className="text-sm font-medium text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">v1.1</span>
         </h2>
         <p className="mt-2 text-center text-sm text-slate-400">
           Sign in to manage subjects and questions
