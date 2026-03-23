@@ -35,7 +35,7 @@ export const Subjects: React.FC = () => {
         collection(db, 'subjects'),
         where('grade', '==', selectedGrade)
       );
-      
+
       if (selectedMedium) {
         q = query(q, where('medium', '==', selectedMedium));
       }
