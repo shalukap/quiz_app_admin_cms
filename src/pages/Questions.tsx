@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, query, where, getCountFromServer } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Plus, Edit2, Trash2, X, ChevronLeft, Filter, Database, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, ChevronLeft, Filter, Database, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import mammoth from 'mammoth';
 

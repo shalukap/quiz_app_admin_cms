@@ -12,7 +12,7 @@ export const Dashboard: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
               Quiz Content Manager
-              <span className="text-sm font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">v1.1</span>
+              <span className="text-sm font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">v1.2</span>
             </h1>
             <p className="text-slate-400">Logged in as {user?.email}</p>
           </div>
