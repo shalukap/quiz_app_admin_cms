@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, query, where, getCountFromServer } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Plus, Edit2, Trash2, X, ChevronLeft, Filter } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, ChevronLeft, Filter, Database, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import mammoth from 'mammoth';
 
@@ -16,6 +16,7 @@ const sha1 = async (str: string) => {
 interface Subject {
   id: string;
   name: string;
+  questionCount?: number;
 }
 
 interface Question {
@@ -27,8 +28,12 @@ interface Question {
   correctIndex: number;
   imageUrl?: string;
   optionImages?: string[]; // Added
-  timeLimit?: number; // Added
-  medium?: string; // Added
+  timeLimit?: number;
+  medium?: string;
+  isScenarioBased?: boolean;
+  scenarioText?: string;
+  scenarioImageUrl?: string;
+  bucketNumber: number;
 }
 
 export const Questions: React.FC = () => {
@@ -37,6 +42,7 @@ export const Questions: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [uploadLoading, setUploadLoading] = useState(false); // Added
   const [geminiLoading, setGeminiLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
   
   // Filters
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
@@ -55,10 +61,72 @@ export const Questions: React.FC = () => {
     options: ['', '', '', ''],
     correctIndex: 0,
     imageUrl: '',
-    optionImages: ['', '', '', ''], // Added
-    timeLimit: 30, // Added
-    medium: 'English' // Added
+    optionImages: ['', '', '', ''],
+    timeLimit: 90,
+    medium: 'English',
+    isScenarioBased: false,
+    scenarioText: '',
+    scenarioImageUrl: '',
+    bucketNumber: 0
   });
+  const [scenarioCount, setScenarioCount] = useState(1);
+  const [currentScenarioStep, setCurrentScenarioStep] = useState(1);
+  const [scenarioBatchQuestions, setScenarioBatchQuestions] = useState<any[]>([]);
+
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [questionToDelete, setQuestionToDelete] = useState<string | null>(null);
+  const [isDuplicate, setIsDuplicate] = useState(false);
+
+  // Migration State
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0 });
+  const [showMigrationConfirm, setShowMigrationConfirm] = useState(false);
+
+  useEffect(() => {
+    const checkDuplicate = async () => {
+      const text = formData.text.trim().toLowerCase();
+      if (!text || !formData.subjectId) {
+        setIsDuplicate(false);
+        return;
+      }
+
+      // Check if we already have the relevant questions in memory
+      const matchesFilter = 
+        formData.subjectId === selectedSubjectId && 
+        formData.grade === selectedGrade && 
+        formData.medium === (selectedMedium || 'English');
+
+      if (matchesFilter) {
+        const found = questions.some(q => 
+          q.text.trim().toLowerCase() === text && 
+          q.id !== editingId
+        );
+        setIsDuplicate(found);
+      } else {
+        // Fetch questions for the new context to check
+        try {
+          const q = query(
+            collection(db, 'questions'),
+            where('subjectId', '==', formData.subjectId),
+            where('grade', '==', formData.grade),
+            where('medium', '==', formData.medium)
+          );
+          const snapshot = await getDocs(q);
+          const found = snapshot.docs.some(d => {
+            const data = d.data();
+            return d.id !== editingId && (data.text || '').trim().toLowerCase() === text;
+          });
+          setIsDuplicate(found);
+        } catch (err) {
+          console.error("Error checking duplicate", err);
+          setIsDuplicate(false);
+        }
+      }
+    };
+
+    const debounce = setTimeout(checkDuplicate, 300);
+    return () => clearTimeout(debounce);
+  }, [formData.text, formData.subjectId, formData.grade, formData.medium, questions, editingId, selectedSubjectId, selectedGrade, selectedMedium]);
 
   const fetchSubjects = async () => {
     try {
@@ -67,14 +135,33 @@ export const Questions: React.FC = () => {
         where('grade', '==', selectedGrade)
       );
       const subSnapshot = await getDocs(q);
-      const subs = subSnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-      setSubjects(subs);
+      const subsData = subSnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+      
+      // Fetch counts for each subject in this grade
+      const subsWithCounts = await Promise.all(
+        subsData.map(async (sb) => {
+          try {
+            const countQuery = query(
+              collection(db, 'questions'),
+              where('subjectId', '==', sb.id),
+              where('grade', '==', selectedGrade)
+            );
+            const countSnapshot = await getCountFromServer(countQuery);
+            return { ...sb, questionCount: countSnapshot.data().count };
+          } catch (err) {
+            console.error(`Error counting questions for ${sb.name}:`, err);
+            return { ...sb, questionCount: 0 };
+          }
+        })
+      );
+
+      setSubjects(subsWithCounts);
       
       // Update selected subject if current one is not in the new list
-      if (subs.length > 0) {
-        if (!subs.find(s => s.id === selectedSubjectId)) {
-          setSelectedSubjectId(subs[0].id);
-          setFormData(prev => ({ ...prev, subjectId: subs[0].id }));
+      if (subsWithCounts.length > 0) {
+        if (!subsWithCounts.find((s: Subject) => s.id === selectedSubjectId)) {
+          setSelectedSubjectId(subsWithCounts[0].id);
+          setFormData(prev => ({ ...prev, subjectId: subsWithCounts[0].id }));
         }
       } else {
         setSelectedSubjectId('');
@@ -85,7 +172,90 @@ export const Questions: React.FC = () => {
     }
   };
 
-  const handleImageUpload = async (file: File, optionIndex?: number) => {
+  const runBucketMigration = async () => {
+    setIsMigrating(true);
+    setShowMigrationConfirm(false);
+    try {
+      const querySnapshot = await getDocs(collection(db, 'questions'));
+      const docs = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+      
+      setMigrationProgress({ current: 0, total: docs.length });
+
+      const groups: Record<string, any[]> = {};
+      docs.forEach(q => {
+        const key = `${q.subjectId}_${q.grade}_${q.medium || 'English'}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(q);
+      });
+
+      let processedCount = 0;
+      for (const key in groups) {
+        const groupQuestions = groups[key];
+        let pool = [1, 2, 3];
+        let bucketCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0 };
+        let maxBucketSeen = 3;
+
+        for (const q of groupQuestions) {
+          let available = pool.filter(b => (bucketCounts[b] || 0) < 20);
+          
+          while (available.length < 3) {
+            maxBucketSeen++;
+            pool.push(maxBucketSeen);
+            bucketCounts[maxBucketSeen] = 0;
+            available = pool.filter(b => (bucketCounts[b] || 0) < 20);
+          }
+
+          const bucket = available[Math.floor(Math.random() * available.length)];
+          bucketCounts[bucket] = (bucketCounts[bucket] || 0) + 1;
+
+          await updateDoc(doc(db, 'questions', q.id), { bucketNumber: bucket });
+          
+          processedCount++;
+          setMigrationProgress({ current: processedCount, total: docs.length });
+        }
+      }
+
+      alert("Migration completed successfully!");
+      fetchQuestions();
+    } catch (err) {
+      console.error("Migration failed:", err);
+      alert("Migration failed. Check console for details.");
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
+  const getRandomBucketNumber = async (subjectId: string, grade: number, medium: string): Promise<number> => {
+    const availableBuckets: number[] = [];
+    let currentBucket = 1;
+
+    // We want to find the first 3 buckets that are not full (count < 20)
+    while (availableBuckets.length < 3) {
+      const q = query(
+        collection(db, 'questions'),
+        where('subjectId', '==', subjectId),
+        where('grade', '==', grade),
+        where('medium', '==', medium),
+        where('bucketNumber', '==', currentBucket)
+      );
+      const snapshot = await getCountFromServer(q);
+      let count = snapshot.data().count;
+
+      // When adding multiple questions in a batch, we need to account for those not yet in Firestore
+      // Though for simplicity in this helper, we'll return the pool 
+      // and handle batch offsets in the calling function if needed.
+      if (count < 20) {
+        availableBuckets.push(currentBucket);
+      }
+      currentBucket++;
+      if (currentBucket > 1000) break; // Safety
+    }
+
+    const randomIndex = Math.floor(Math.random() * availableBuckets.length);
+    return availableBuckets[randomIndex];
+  };
+
+  const handleImageUpload = async (file: File, optionIndex?: number): Promise<string> => {
     setUploadLoading(true);
     try {
       const timestamp = Math.round(new Date().getTime() / 1000);
@@ -111,14 +281,17 @@ export const Questions: React.FC = () => {
           const newImages = [...formData.optionImages];
           newImages[optionIndex] = data.secure_url;
           setFormData(prev => ({ ...prev, optionImages: newImages }));
-        } else {
+        } else if (!file.name.includes('scenario')) {
           setFormData(prev => ({ ...prev, imageUrl: data.secure_url }));
         }
+        return data.secure_url;
       } else {
         console.error("Upload failed", data);
+        return '';
       }
     } catch (err) {
       console.error("Image upload exception", err);
+      return '';
     } finally {
       setUploadLoading(false);
     }
@@ -224,7 +397,11 @@ export const Questions: React.FC = () => {
                   imageUrl: '',
                   optionImages: Array(formData.options.length).fill(''),
                   timeLimit: formData.timeLimit,
-                  medium: formData.medium
+                  medium: formData.medium,
+                  isScenarioBased: formData.isScenarioBased,
+                  scenarioText: formData.scenarioText,
+                  scenarioImageUrl: formData.scenarioImageUrl,
+                  bucketNumber: 0
                }));
 
                setExtractedQuestions(formattedQuestions);
@@ -243,7 +420,11 @@ export const Questions: React.FC = () => {
                   imageUrl: '',
                   optionImages: Array(formData.options.length).fill(''),
                   timeLimit: formData.timeLimit,
-                  medium: formData.medium
+                  medium: formData.medium,
+                  isScenarioBased: formData.isScenarioBased,
+                  scenarioText: formData.scenarioText,
+                  scenarioImageUrl: formData.scenarioImageUrl,
+                  bucketNumber: 0
                };
                setExtractedQuestions([formatted]);
                setCurrentExtractedIndex(0);
@@ -312,36 +493,102 @@ export const Questions: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isDuplicate && !editingId) {
+      alert("Please fix duplicate question before saving.");
+      return;
+    }
+    
+    setSaveLoading(true);
     try {
-      if (editingId) {
-        await updateDoc(doc(db, 'questions', editingId), formData);
+      if (formData.isScenarioBased && scenarioCount > 1 && !editingId) {
+        // Handling Batch Scenario Mode
+        if (currentScenarioStep < scenarioCount) {
+          // Add current to batch and move to next
+          setScenarioBatchQuestions(prev => [...prev, { ...formData }]);
+          setCurrentScenarioStep(prev => prev + 1);
+          // Reset question-specific fields but keep scenario
+          setFormData(prev => ({
+            ...prev,
+            text: '',
+            options: Array(prev.grade >= 12 ? 5 : 4).fill(''),
+            correctIndex: 0,
+            imageUrl: '',
+            optionImages: Array(prev.grade >= 12 ? 5 : 4).fill(''),
+            bucketNumber: 0
+          }));
+          setSaveLoading(false);
+          return;
+        } else {
+          // Saving the whole batch (Previous questions + current one)
+          const allQuestions = [...scenarioBatchQuestions, { ...formData }];
+          
+          // For each question in batch, we calculate bucket number
+          // We'll use a local tracker to account for questions in the same batch
+          const finalBatch: Question[] = [];
+          for (const q of allQuestions) {
+            const bucket = await getRandomBucketNumber(q.subjectId, q.grade, q.medium);
+            finalBatch.push({ ...q, bucketNumber: bucket } as Question);
+          }
+
+          const batchPromises = finalBatch.map(q => addDoc(collection(db, 'questions'), q));
+          await Promise.all(batchPromises);
+          
+          setIsModalOpen(false);
+          setScenarioBatchQuestions([]);
+          setCurrentScenarioStep(1);
+          setScenarioCount(1);
+        }
       } else {
-        await addDoc(collection(db, 'questions'), formData);
-      }
-      
-      if (extractedQuestions.length > 0 && currentExtractedIndex < extractedQuestions.length - 1) {
-         const nextIndex = currentExtractedIndex + 1;
-         setCurrentExtractedIndex(nextIndex);
-         setFormData(extractedQuestions[nextIndex]);
-      } else {
-         setIsModalOpen(false);
-         setExtractedQuestions([]);
-         setCurrentExtractedIndex(-1);
+        // Normal Single Question Save / Edit
+        if (editingId) {
+          await updateDoc(doc(db, 'questions', editingId), formData);
+        } else {
+          const bucket = await getRandomBucketNumber(formData.subjectId, formData.grade, formData.medium);
+          await addDoc(collection(db, 'questions'), { ...formData, bucketNumber: bucket });
+        }
+        
+        if (extractedQuestions.length > 0 && currentExtractedIndex < extractedQuestions.length - 1) {
+           const list = [...extractedQuestions];
+           list[currentExtractedIndex] = { ...formData };
+           setExtractedQuestions(list);
+           
+           const nextIndex = currentExtractedIndex + 1;
+           setCurrentExtractedIndex(nextIndex);
+           setFormData(list[nextIndex]);
+           setSaveLoading(false);
+           return;
+        } else {
+           setIsModalOpen(false);
+           setExtractedQuestions([]);
+           setCurrentExtractedIndex(-1);
+        }
       }
       fetchQuestions();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving question:', error);
+      alert('Failed to save question.');
+    } finally {
+      setSaveLoading(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this question?')) {
-      try {
-        await deleteDoc(doc(db, 'questions', id));
-        fetchQuestions();
-      } catch (error) {
-        console.error('Error deleting question:', error);
-      }
+  const handleDelete = (id: string | null) => {
+    if (!id) return;
+    setQuestionToDelete(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!questionToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'questions', questionToDelete));
+      setIsDeleteModalOpen(false);
+      setQuestionToDelete(null);
+      if (isModalOpen) setIsModalOpen(false);
+      fetchQuestions();
+    } catch (error) {
+      console.error('Error deleting question:', error);
+      alert('Error deleting question. Please check permissions or network.');
     }
   };
 
@@ -365,8 +612,12 @@ export const Questions: React.FC = () => {
         correctIndex: question.correctIndex,
         imageUrl: question.imageUrl || '',
         optionImages: optImgs,
-        timeLimit: question.timeLimit || 30,
-        medium: question.medium || 'English'
+        timeLimit: question.timeLimit || 90,
+        medium: question.medium || 'English',
+        isScenarioBased: question.isScenarioBased || false,
+        scenarioText: question.scenarioText || '',
+        scenarioImageUrl: question.scenarioImageUrl || '',
+        bucketNumber: question.bucketNumber || 0
       });
     } else {
       setEditingId(null);
@@ -379,10 +630,17 @@ export const Questions: React.FC = () => {
         correctIndex: 0,
         imageUrl: '',
         optionImages: Array(needs5 ? 5 : 4).fill(''),
-        timeLimit: 30,
-        medium: selectedMedium || 'English'
+        timeLimit: 90,
+        medium: selectedMedium || 'English',
+        isScenarioBased: false,
+        scenarioText: '',
+        scenarioImageUrl: '',
+        bucketNumber: 0
       });
     }
+    setScenarioCount(1);
+    setCurrentScenarioStep(1);
+    setScenarioBatchQuestions([]);
     setIsModalOpen(true);
   };
 
@@ -418,7 +676,11 @@ export const Questions: React.FC = () => {
               className="bg-slate-900 border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
             >
               <option value="" disabled>Select Subject</option>
-              {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {subjects.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} {s.questionCount !== undefined ? `(${s.questionCount})` : ''}
+                </option>
+              ))}
             </select>
             <select
               value={selectedGrade}
@@ -440,6 +702,14 @@ export const Questions: React.FC = () => {
               <option value="Sinhala">Sinhala</option>
               <option value="Tamil">Tamil</option>
             </select>
+
+            <button
+              onClick={() => setShowMigrationConfirm(true)}
+              className="p-2 bg-slate-700 hover:bg-slate-600 text-amber-400 rounded-lg transition-colors flex items-center justify-center ml-2"
+              title="Run Bucket Migration (Admin)"
+            >
+              <Database size={18} />
+            </button>
 
             <button
               onClick={() => openModal()}
@@ -474,11 +744,32 @@ export const Questions: React.FC = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2 flex-wrap">
                       <span className="bg-slate-700 text-slate-300 text-xs px-2 py-1 rounded font-medium">Q.{qIndex + 1}</span>
+                      {question.isScenarioBased && (
+                        <span className="bg-amber-600/20 text-amber-500 text-[10px] px-2 py-0.5 rounded border border-amber-500/20 font-bold uppercase tracking-wider">Scenario Based</span>
+                      )}
+                      {question.bucketNumber > 0 && (
+                        <span className="bg-indigo-600/20 text-indigo-400 text-[10px] px-2 py-0.5 rounded border border-indigo-500/20 font-bold uppercase tracking-wider">
+                          Bucket {question.bucketNumber}
+                        </span>
+                      )}
                       <h3 className="text-lg font-medium text-white">{question.text}</h3>
                       <span className="bg-blue-600/10 text-blue-400 text-xs px-2 py-1 rounded font-medium flex items-center gap-1">
-                        {question.timeLimit || 30} sec
+                        {question.timeLimit || 90} sec
                       </span>
                     </div>
+                    {question.isScenarioBased && question.scenarioText && (
+                      <div className="mb-4 p-4 bg-slate-900/50 border border-slate-700 rounded-xl">
+                        <div className="flex gap-4 items-start">
+                          {question.scenarioImageUrl && (
+                            <img src={question.scenarioImageUrl} alt="Scenario" className="w-24 h-24 object-contain rounded-lg bg-black/20" />
+                          )}
+                          <div className="flex-1">
+                            <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Scenario Content:</span>
+                            <p className="text-sm text-slate-300 italic">"{question.scenarioText}"</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
                     {question.options.map((opt, idx) => (
                       <div 
@@ -618,7 +909,104 @@ export const Questions: React.FC = () => {
                   </div>
                 )}
 
-                <div className="grid grid-cols-4 gap-4">
+                {/* Scenario Toggle & Info */}
+                {!editingId && (
+                  <div className="bg-slate-900/40 p-4 rounded-xl border border-slate-700 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-6 rounded-full transition-colors relative cursor-pointer ${formData.isScenarioBased ? 'bg-amber-600' : 'bg-slate-700'}`}
+                             onClick={() => setFormData({...formData, isScenarioBased: !formData.isScenarioBased})}>
+                          <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${formData.isScenarioBased ? 'left-5' : 'left-1'}`} />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-white">Scenario Mode</h4>
+                          <p className="text-xs text-slate-400">Multiple questions based on one text/image</p>
+                        </div>
+                      </div>
+                      
+                      {formData.isScenarioBased && (
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-slate-400 uppercase font-bold">Questions in Batch:</label>
+                          <input 
+                            type="number" 
+                            min="1" 
+                            max="10"
+                            value={scenarioCount}
+                            onChange={(e) => setScenarioCount(parseInt(e.target.value) || 1)}
+                            className="w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-white text-center focus:ring-1 focus:ring-amber-500 outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {formData.isScenarioBased && (
+                      <div className="space-y-4 pt-2 border-t border-slate-700/50 animate-in fade-in slide-in-from-top-1">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-300 mb-1">Scenario Text</label>
+                          <textarea
+                            value={formData.scenarioText}
+                            onChange={(e) => setFormData({...formData, scenarioText: e.target.value})}
+                            required
+                            placeholder="Enter the shared introduction text..."
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500 outline-none min-h-[100px] text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-300 mb-1 flex items-center justify-between">
+                            Scenario Image (Optional)
+                            <span className="text-[10px] text-slate-500">Shared across all questions in batch</span>
+                          </label>
+                          <div className="flex items-center gap-4">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600 transition-all cursor-pointer flex-1"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  setUploadLoading(true);
+                                  const url = await handleImageUpload(file);
+                                  setFormData({ ...formData, scenarioImageUrl: url });
+                                  setUploadLoading(false);
+                                }
+                              }}
+                            />
+                            {formData.scenarioImageUrl && (
+                              <div className="relative group">
+                                <img src={formData.scenarioImageUrl} alt="Scenario preview" className="w-12 h-12 rounded border border-slate-700 object-cover" />
+                                <button type="button" onClick={() => setFormData({...formData, scenarioImageUrl: ''})} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {scenarioCount > 1 && (
+                          <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-500 font-bold text-sm">
+                              {currentScenarioStep}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-xs text-amber-200 font-medium lowercase italic">Saving sequence: Input current question details, then click "Add Next" until all {scenarioCount} are complete.</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+            {/* Form Fields */}
+            <div className="space-y-4">
+              {formData.bucketNumber > 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-500/10 text-indigo-400 rounded-xl text-xs font-bold border border-indigo-500/20">
+                  <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                  ASSIGNED TO BUCKET {formData.bucketNumber}
+                </div>
+              )}
+              
+              <div className="grid grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-1">Subject</label>
                     <select
@@ -626,7 +1014,11 @@ export const Questions: React.FC = () => {
                       onChange={e => setFormData({ ...formData, subjectId: e.target.value })}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                     >
-                      {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {subjects.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} {s.questionCount !== undefined ? `(${s.questionCount})` : ''}
+                </option>
+              ))}
                     </select>
                   </div>
                   <div>
@@ -693,9 +1085,15 @@ export const Questions: React.FC = () => {
                     rows={2}
                     value={formData.text}
                     onChange={e => setFormData({...formData, text: e.target.value})}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
+                    className={`w-full bg-slate-900 border ${isDuplicate ? 'border-red-500 ring-2 ring-red-500/20 text-red-400' : 'border-slate-700'} rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none resize-none transition-all`}
                     placeholder="Type the question here..."
                   />
+                  {isDuplicate && (
+                    <p className="mt-2 text-xs font-medium text-red-500 flex items-center gap-1">
+                      <X size={14} />
+                      This question already exists in this Subject/Grade/Medium!
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -805,23 +1203,134 @@ export const Questions: React.FC = () => {
                   </div>
                   <p className="text-xs text-slate-500 mt-3 ml-12">Select the radio button next to the correct answer.</p>
                 </div>
+              </div>
 
-                <div className="pt-4 flex gap-3 border-t border-slate-700/50">
+              <div className="pt-4 flex gap-3 border-t border-slate-700/50">
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+                    className="px-6 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
                   >
                     Cancel
                   </button>
+                  {editingId && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(editingId)}
+                      className="px-6 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl font-medium transition-colors"
+                    >
+                      Delete
+                    </button>
+                  )}
                   <button
                     type="submit"
-                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-medium transition-colors text-white"
+                    disabled={isDuplicate || uploadLoading || geminiLoading || saveLoading}
+                    title={isDuplicate ? "Cannot save duplicate question" : ""}
+                    className={`flex-1 py-2.5 rounded-xl font-medium transition-colors text-white ${
+                      isDuplicate || uploadLoading || geminiLoading || saveLoading
+                        ? 'bg-slate-700 cursor-not-allowed opacity-50' 
+                        : 'bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-900/20'
+                    }`}
                   >
-                    Save Question
+                    {uploadLoading ? 'Uploading...' : geminiLoading ? 'Extracting...' : saveLoading ? 'Saving...' : isDuplicate ? 'Duplicate Question' : editingId ? 'Update Question' : 'Save Question'}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+        
+        {/* Migration Confirmation Modal */}
+        {showMigrationConfirm && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+            <div className="bg-slate-800 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl p-6 text-center">
+              <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-500/20">
+                <AlertTriangle className="text-amber-500" size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Run Bucket Migration?</h3>
+              <p className="text-slate-400 mb-8 text-sm">
+                This will assign randomized bucket numbers to **ALL** existing questions in the database. 
+                This process may take a few minutes depending on the database size.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowMigrationConfirm(false)}
+                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={runBucketMigration}
+                  className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 rounded-xl font-medium transition-colors text-white shadow-lg shadow-amber-900/20 flex items-center justify-center gap-2"
+                >
+                  Confirm & Run
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Migration Progress Overlay */}
+        {isMigrating && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[100]">
+            <div className="bg-slate-900 rounded-3xl w-full max-w-sm border border-slate-800 shadow-3xl p-8 text-center ring-1 ring-slate-700">
+              <div className="relative w-24 h-24 mx-auto mb-6">
+                <div className="absolute inset-0 rounded-full border-4 border-slate-800" />
+                <div 
+                  className="absolute inset-0 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin"
+                  style={{ animationDuration: '1.5s' }}
+                />
+                <Database className="absolute inset-0 m-auto text-emerald-500" size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2 italic">Synchronizing Data...</h3>
+              <p className="text-slate-400 text-sm mb-6 uppercase tracking-widest font-semibold">Updating Question Buckets</p>
+              
+              <div className="w-full bg-slate-800 rounded-full h-3 mb-3 border border-slate-700 overflow-hidden">
+                <div 
+                  className="bg-gradient-to-r from-emerald-600 to-teal-400 h-full transition-all duration-300 ease-out"
+                  style={{ width: `${(migrationProgress.current / migrationProgress.total) * 100}%` }}
+                />
+              </div>
+              
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-500 font-medium">Progress</span>
+                <span className="text-emerald-400 font-bold tabular-nums">
+                  {migrationProgress.current} / {migrationProgress.total} Items
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {isDeleteModalOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+            <div className="bg-slate-800 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl p-6 text-center">
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+                <Trash2 className="text-red-500" size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Are you sure?</h3>
+              <p className="text-slate-400 mb-8">
+                Do you really want to delete this question? This action cannot be undone and will permanently remove it from the database.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  className="flex-1 py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors text-white shadow-lg shadow-red-900/20"
+                >
+                  Delete Now
+                </button>
+              </div>
             </div>
           </div>
         )}
