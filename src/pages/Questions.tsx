@@ -189,13 +189,18 @@ export const Questions: React.FC = () => {
       });
 
       let processedCount = 0;
+      const { writeBatch } = await import('firebase/firestore');
+      let batch = writeBatch(db);
+      let batchOpCount = 0;
+
       for (const key in groups) {
         const groupQuestions = groups[key];
-        let pool = [1, 2, 3];
-        let bucketCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0 };
+        const pool = [1, 2, 3];
+        const bucketCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0 };
         let maxBucketSeen = 3;
 
         for (const q of groupQuestions) {
+          // Rule: Ensure at least 3 non-full buckets are in the selection pool
           let available = pool.filter(b => (bucketCounts[b] || 0) < 20);
           
           while (available.length < 3) {
@@ -208,11 +213,22 @@ export const Questions: React.FC = () => {
           const bucket = available[Math.floor(Math.random() * available.length)];
           bucketCounts[bucket] = (bucketCounts[bucket] || 0) + 1;
 
-          await updateDoc(doc(db, 'questions', q.id), { bucketNumber: bucket });
+          batch.update(doc(db, 'questions', q.id), { bucketNumber: bucket });
+          batchOpCount++;
+
+          if (batchOpCount >= 450) {
+            await batch.commit();
+            batch = writeBatch(db);
+            batchOpCount = 0;
+          }
           
           processedCount++;
           setMigrationProgress({ current: processedCount, total: docs.length });
         }
+      }
+
+      if (batchOpCount > 0) {
+        await batch.commit();
       }
 
       alert("Migration completed successfully!");
@@ -225,7 +241,7 @@ export const Questions: React.FC = () => {
     }
   };
 
-  const getRandomBucketNumber = async (subjectId: string, grade: number, medium: string): Promise<number> => {
+  const getRandomBucketNumber = async (subjectId: string, grade: number, medium: string, pendingCounts?: Record<number, number>): Promise<number> => {
     const availableBuckets: number[] = [];
     let currentBucket = 1;
 
@@ -239,12 +255,12 @@ export const Questions: React.FC = () => {
         where('bucketNumber', '==', currentBucket)
       );
       const snapshot = await getCountFromServer(q);
-      let count = snapshot.data().count;
+      const firestoreCount = snapshot.data().count;
+      const pendingCount = pendingCounts?.[currentBucket] || 0;
+      
+      const totalCount = firestoreCount + pendingCount;
 
-      // When adding multiple questions in a batch, we need to account for those not yet in Firestore
-      // Though for simplicity in this helper, we'll return the pool 
-      // and handle batch offsets in the calling function if needed.
-      if (count < 20) {
+      if (totalCount < 20) {
         availableBuckets.push(currentBucket);
       }
       currentBucket++;
@@ -525,8 +541,11 @@ export const Questions: React.FC = () => {
           // For each question in batch, we calculate bucket number
           // We'll use a local tracker to account for questions in the same batch
           const finalBatch: Question[] = [];
+          const pendingCounts: Record<number, number> = {};
+          
           for (const q of allQuestions) {
-            const bucket = await getRandomBucketNumber(q.subjectId, q.grade, q.medium);
+            const bucket = await getRandomBucketNumber(q.subjectId, q.grade, q.medium, pendingCounts);
+            pendingCounts[bucket] = (pendingCounts[bucket] || 0) + 1;
             finalBatch.push({ ...q, bucketNumber: bucket } as Question);
           }
 
