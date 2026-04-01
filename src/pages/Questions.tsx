@@ -241,11 +241,11 @@ export const Questions: React.FC = () => {
     }
   };
 
-  const getRandomBucketNumber = async (subjectId: string, grade: number, medium: string, pendingCounts?: Record<number, number>): Promise<number> => {
+  const getRandomBucketNumber = async (subjectId: string, grade: number, medium: string, pendingCounts?: Record<number, number>, requiredCapacity: number = 1): Promise<number> => {
     const availableBuckets: number[] = [];
     let currentBucket = 1;
 
-    // We want to find the first 3 buckets that are not full (count < 20)
+    // We want to find the first 3 buckets that have room for requiredCapacity (count + requiredCapacity <= 20)
     while (availableBuckets.length < 3) {
       const q = query(
         collection(db, 'questions'),
@@ -260,7 +260,7 @@ export const Questions: React.FC = () => {
       
       const totalCount = firestoreCount + pendingCount;
 
-      if (totalCount < 20) {
+      if (totalCount + requiredCapacity <= 20) {
         availableBuckets.push(currentBucket);
       }
       currentBucket++;
@@ -538,16 +538,10 @@ export const Questions: React.FC = () => {
           // Saving the whole batch (Previous questions + current one)
           const allQuestions = [...scenarioBatchQuestions, { ...formData }];
           
-          // For each question in batch, we calculate bucket number
-          // We'll use a local tracker to account for questions in the same batch
-          const finalBatch: Question[] = [];
-          const pendingCounts: Record<number, number> = {};
-          
-          for (const q of allQuestions) {
-            const bucket = await getRandomBucketNumber(q.subjectId, q.grade, q.medium, pendingCounts);
-            pendingCounts[bucket] = (pendingCounts[bucket] || 0) + 1;
-            finalBatch.push({ ...q, bucketNumber: bucket } as Question);
-          }
+          // Assign all questions in the scenario to the same bucket
+          const batchSize = allQuestions.length;
+          const bucket = await getRandomBucketNumber(formData.subjectId, formData.grade, formData.medium, {}, batchSize);
+          const finalBatch = allQuestions.map(q => ({ ...q, bucketNumber: bucket } as Question));
 
           const batchPromises = finalBatch.map(q => addDoc(collection(db, 'questions'), q));
           await Promise.all(batchPromises);

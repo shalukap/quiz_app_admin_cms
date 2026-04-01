@@ -23,46 +23,72 @@ async function migrateBuckets() {
       groups[key].push(q);
     });
 
-    console.log(`📁 Grouped into ${Object.keys(groups).length} unique sets (Subject/Grade/Medium).`);
+    console.log(`📁 Grouped into ${Object.keys(groups).length} Subject/Grade/Medium sets.`);
+
+    // Grouping into atomic units (Solo questions or Scenario Clusters)
+    const setGroups = {};
+    for (const key in groups) {
+      const groupQuestions = groups[key];
+      const scenarioClusters = {};
+      const soloQuestions = [];
+
+      groupQuestions.forEach(q => {
+        if (q.isScenarioBased && q.scenarioText) {
+          const sKey = q.scenarioText.trim().toLowerCase();
+          if (!scenarioClusters[sKey]) scenarioClusters[sKey] = [];
+          scenarioClusters[sKey].push(q);
+        } else {
+          soloQuestions.push(q);
+        }
+      });
+
+      const units = [
+        ...Object.values(scenarioClusters).map(qs => ({ questions: qs, size: qs.length })),
+        ...soloQuestions.map(q => ({ questions: [q], size: 1 }))
+      ];
+      
+      // Randomizing units to ensure even distribution
+      setGroups[key] = units.sort(() => Math.random() - 0.5);
+    }
+
+    console.log(`📁 Grouped into ${Object.keys(groups).length} sets. Applying bucket assignment...`);
 
     let totalUpdated = 0;
     let batch = writeBatch(db);
     let batchOpCount = 0;
 
-    for (const key in groups) {
-      const groupQuestions = groups[key];
+    for (const key in setGroups) {
+      const units = setGroups[key];
       const pool = [1, 2, 3];
       const bucketCounts = { 1: 0, 2: 0, 3: 0 };
       let maxBucketSeen = 3;
 
-      // Randomizing questions to ensure even distribution
-      const shuffled = groupQuestions.sort(() => Math.random() - 0.5);
-
-      for (const q of shuffled) {
-        // Rule: Ensure at least 3 non-full buckets (count < 20) in selection pool
-        let available = pool.filter(b => (bucketCounts[b] || 0) < 20);
+      for (const unit of units) {
+        // Rule: Ensure at least 3 non-full buckets (capacity >= unit.size) in selection pool
+        let available = pool.filter(b => (bucketCounts[b] || 0) + unit.size <= 20);
         
         while (available.length < 3) {
           maxBucketSeen++;
           pool.push(maxBucketSeen);
           bucketCounts[maxBucketSeen] = 0;
-          available = pool.filter(b => (bucketCounts[b] || 0) < 20);
+          available = pool.filter(b => (bucketCounts[b] || 0) + unit.size <= 20);
         }
 
         // Random assignment from available pool
         const bucket = available[Math.floor(Math.random() * available.length)];
-        bucketCounts[bucket] = (bucketCounts[bucket] || 0) + 1;
+        bucketCounts[bucket] = (bucketCounts[bucket] || 0) + unit.size;
 
-        batch.update(doc(db, 'questions', q.id), { bucketNumber: bucket });
-        batchOpCount++;
+        for (const q of unit.questions) {
+          batch.update(doc(db, 'questions', q.id), { bucketNumber: bucket });
+          batchOpCount++;
 
-        if (batchOpCount >= 450) {
-          await batch.commit();
-          batch = writeBatch(db);
-          batchOpCount = 0;
+          if (batchOpCount >= 450) {
+            await batch.commit();
+            batch = writeBatch(db);
+            batchOpCount = 0;
+          }
+          totalUpdated++;
         }
-        
-        totalUpdated++;
       }
     }
 
