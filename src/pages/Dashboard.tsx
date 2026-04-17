@@ -4,7 +4,7 @@ import { LogOut, Book, MessageSquare, Users, Key, X, Eye, EyeOff, AlertTriangle,
 import { updatePassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Link, useNavigate } from 'react-router-dom';
-import { createLog } from '../utils/logger';
+// 
 
 export const Dashboard: React.FC = () => {
   const { logout, user, userProfile } = useAuth();

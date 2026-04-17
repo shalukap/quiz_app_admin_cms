@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy, limit, Timestamp, where } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, Clock, User, Activity, FileText } from 'lucide-react';
-import { Link, Navigate } from 'react-router-dom';
+import { ChevronLeft, Clock, User, FileText } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 interface LogEntry {
