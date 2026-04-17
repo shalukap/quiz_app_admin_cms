@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, setDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
-import { Shield, ShieldAlert, User, Check, X, Edit2, Trash2, Plus, ChevronLeft, Key, AlertTriangle } from 'lucide-react';
+import { Shield, ShieldAlert, User, Check, X, Edit2, Trash2, Plus, ChevronLeft, Key } from 'lucide-react';
 import { Link, Navigate } from 'react-router-dom';
 import type { UserProfile } from '../context/AuthContext';
 // Import secondary app to create user

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { LogOut, Book, MessageSquare, Users, Key, X, Eye, EyeOff, AlertTriangle, Activity, Shield } from 'lucide-react';
-import { updatePassword, signOut } from 'firebase/auth';
+import { updatePassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Link, useNavigate } from 'react-router-dom';
 import { createLog } from '../utils/logger';

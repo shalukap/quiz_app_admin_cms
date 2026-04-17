@@ -8,6 +8,8 @@ import { createLog } from '../utils/logger';
 export interface UserProfile {
   id: string;
   email: string;
+  username?: string;
+  loginEmail?: string;
   role: 'Root' | 'Admin' | 'User';
   status: 'Active' | 'Inactive';
   allowedAccess?: { grade: number; subjectId: string }[];
