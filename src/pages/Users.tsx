@@ -8,6 +8,7 @@ import type { UserProfile } from '../context/AuthContext';
 // Import secondary app to create user
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { createLog } from '../utils/logger';
 
 interface Subject {
   id: string;
@@ -86,6 +87,10 @@ export const Users: React.FC = () => {
           status,
           allowedAccess: role === 'User' ? allowedAccess : []
         });
+        
+        if (userProfile) {
+          await createLog(userProfile.id, userProfile.username || userProfile.email, 'UPDATE_USER', `Updated profile for user: ${username} (${email})`);
+        }
       } else {
         // Create user in Auth
         if (!password) {
@@ -115,6 +120,10 @@ export const Users: React.FC = () => {
           status,
           allowedAccess: role === 'User' ? allowedAccess : []
         });
+
+        if (userProfile) {
+          await createLog(userProfile.id, userProfile.username || userProfile.email, 'CREATE_USER', `Created new user: ${username} (Login ID: ${loginEmail})`);
+        }
         
         // Sign out secondary app to keep clean state
         await secondaryAuth.signOut();
@@ -133,6 +142,9 @@ export const Users: React.FC = () => {
     if (window.confirm("Delete this user's access profile? They won't be able to log in, but their Authentication record will remain.")) {
       try {
         await deleteDoc(doc(db, 'users', id));
+        if (userProfile) {
+          await createLog(userProfile.id, userProfile.username || userProfile.email, 'DELETE_USER', `Deleted user profile with ID: ${id}`);
+        }
         fetchData();
       } catch (err) {
         console.error(err);
@@ -146,7 +158,10 @@ export const Users: React.FC = () => {
     
     try {
       await sendPasswordResetEmail(auth, userEmail);
-      alert('Password reset email sent successfully!');
+      if (userProfile) {
+        await createLog(userProfile.id, userProfile.username || userProfile.email, 'RESET_PASSWORD', `Sent password reset email to: ${userEmail}`);
+      }
+      alert('Password reset email sent to: ' + userEmail);
     } catch (err: any) {
       console.error('Reset error:', err);
       alert('Error sending reset email: ' + err.message);

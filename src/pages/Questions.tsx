@@ -5,6 +5,7 @@ import { Plus, Edit2, Trash2, X, ChevronLeft, Filter, Database, AlertTriangle } 
 import { Link } from 'react-router-dom';
 import mammoth from 'mammoth';
 import { useAuth } from '../context/AuthContext';
+import { createLog } from '../utils/logger';
 
 const sha1 = async (str: string) => {
   const buf = new TextEncoder().encode(str);
@@ -565,6 +566,10 @@ export const Questions: React.FC = () => {
           const batchPromises = finalBatch.map(q => addDoc(collection(db, 'questions'), q));
           await Promise.all(batchPromises);
           
+          if (userProfile) {
+            await createLog(userProfile.id, userProfile.username || userProfile.email, 'CREATE_QUESTION', `Created a batch of ${batchSize} scenario questions for Subject ID: ${formData.subjectId}`);
+          }
+
           setIsModalOpen(false);
           setScenarioBatchQuestions([]);
           setCurrentScenarioStep(1);
@@ -574,9 +579,15 @@ export const Questions: React.FC = () => {
         // Normal Single Question Save / Edit
         if (editingId) {
           await updateDoc(doc(db, 'questions', editingId), formData);
+          if (userProfile) {
+            await createLog(userProfile.id, userProfile.username || userProfile.email, 'UPDATE_QUESTION', `Updated question ID: ${editingId}`);
+          }
         } else {
           const bucket = await getRandomBucketNumber(formData.subjectId, formData.grade, formData.medium);
           await addDoc(collection(db, 'questions'), { ...formData, bucketNumber: bucket });
+          if (userProfile) {
+            await createLog(userProfile.id, userProfile.username || userProfile.email, 'CREATE_QUESTION', `Created single question for Subject ID: ${formData.subjectId}`);
+          }
         }
         
         if (extractedQuestions.length > 0 && currentExtractedIndex < extractedQuestions.length - 1) {
@@ -614,6 +625,9 @@ export const Questions: React.FC = () => {
     if (!questionToDelete) return;
     try {
       await deleteDoc(doc(db, 'questions', questionToDelete));
+      if (userProfile) {
+        await createLog(userProfile.id, userProfile.username || userProfile.email, 'DELETE_QUESTION', `Deleted question ID: ${questionToDelete}`);
+      }
       setIsDeleteModalOpen(false);
       setQuestionToDelete(null);
       if (isModalOpen) setIsModalOpen(false);

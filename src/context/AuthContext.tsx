@@ -3,6 +3,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { doc, getDoc, setDoc, getDocs, collection } from 'firebase/firestore';
+import { createLog } from '../utils/logger';
 
 export interface UserProfile {
   id: string;
@@ -48,6 +49,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUserProfile(null);
             } else {
               setUserProfile(profile);
+              // Log login once per session
+              const sessionLogged = sessionStorage.getItem(`logged_${firebaseUser.uid}`);
+              if (!sessionLogged) {
+                createLog(profile.id, profile.username || profile.email, 'LOGIN', `User logged in from ${window.location.hostname}`);
+                sessionStorage.setItem(`logged_${firebaseUser.uid}`, 'true');
+              }
             }
           } else {
             const usersSnapshot = await getDocs(collection(db, 'users'));
@@ -84,6 +91,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = async () => {
+    if (user && userProfile) {
+      await createLog(userProfile.id, userProfile.username || userProfile.email, 'LOGOUT', 'User initiated logout');
+      sessionStorage.removeItem(`logged_${user.uid}`);
+    }
     await signOut(auth);
   };
 

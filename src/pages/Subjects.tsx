@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { Plus, Edit2, Trash2, X, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { createLog } from '../utils/logger';
 
 interface Subject {
   id: string;
@@ -99,8 +100,14 @@ export const Subjects: React.FC = () => {
     try {
       if (editingId) {
         await updateDoc(doc(db, 'subjects', editingId), formData);
+        if (userProfile) {
+          await createLog(userProfile.id, userProfile.username || userProfile.email, 'UPDATE_SUBJECT', `Updated subject: ${formData.name} (Grade ${formData.grade})`);
+        }
       } else {
         await addDoc(collection(db, 'subjects'), formData);
+        if (userProfile) {
+          await createLog(userProfile.id, userProfile.username || userProfile.email, 'CREATE_SUBJECT', `Created new subject: ${formData.name} (Grade ${formData.grade})`);
+        }
       }
       setIsModalOpen(false);
       fetchSubjects();
@@ -137,6 +144,9 @@ export const Subjects: React.FC = () => {
     if (!subjectToDelete) return;
     try {
       await deleteDoc(doc(db, 'subjects', subjectToDelete));
+      if (userProfile) {
+        await createLog(userProfile.id, userProfile.username || userProfile.email, 'DELETE_SUBJECT', `Deleted subject with ID: ${subjectToDelete}`);
+      }
       setIsDeleteModalOpen(false);
       setSubjectToDelete(null);
       fetchSubjects();
