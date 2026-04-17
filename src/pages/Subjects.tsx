@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, query, where, getCountFromServer } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Plus, Edit2, Trash2, X, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -12,6 +12,7 @@ interface Subject {
   grade: number;
   medium?: string;
   questionCount?: number;
+  bucketCounts?: Record<number, number>;
 }
 
 export const Subjects: React.FC = () => {
@@ -54,15 +55,25 @@ export const Subjects: React.FC = () => {
       const subjectsWithCounts = await Promise.all(
         subjectsData.map(async (subject) => {
           try {
-            const countQuery = query(
+            const qQuery = query(
               collection(db, 'questions'),
               where('subjectId', '==', subject.id)
             );
-            const countSnapshot = await getCountFromServer(countQuery);
-            return { ...subject, questionCount: countSnapshot.data().count };
+            const snapshot = await getDocs(qQuery);
+            const bucketCounts: Record<number, number> = {};
+            snapshot.docs.forEach(doc => {
+              const data = doc.data();
+              const b = data.bucketNumber || 0;
+              bucketCounts[b] = (bucketCounts[b] || 0) + 1;
+            });
+            return { 
+              ...subject, 
+              questionCount: snapshot.size,
+              bucketCounts 
+            };
           } catch (err) {
             console.error(`Error fetching count for ${subject.name}:`, err);
-            return { ...subject, questionCount: 0 };
+            return { ...subject, questionCount: 0, bucketCounts: {} };
           }
         })
       );
@@ -243,6 +254,15 @@ export const Subjects: React.FC = () => {
                         {subject.questionCount ?? 0} questions
                       </span>
                     </div>
+                    {subject.bucketCounts && Object.keys(subject.bucketCounts).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {Object.entries(subject.bucketCounts).sort(([a], [b]) => Number(a) - Number(b)).map(([bucket, count]) => (
+                          <span key={bucket} className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded" title={`Bucket ${bucket}`}>
+                            B{bucket}: {count as React.ReactNode}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
