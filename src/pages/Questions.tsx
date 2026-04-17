@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { Plus, Edit2, Trash2, X, ChevronLeft, Filter, Database, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import mammoth from 'mammoth';
+import { useAuth } from '../context/AuthContext';
 
 const sha1 = async (str: string) => {
   const buf = new TextEncoder().encode(str);
@@ -40,6 +41,12 @@ export const Questions: React.FC = () => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
+  const { userProfile } = useAuth();
+
+  const allowedGrades = userProfile?.role === 'User' 
+    ? Array.from(new Set(userProfile.allowedAccess?.map(a => a.grade) || []))
+    : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+
   const [uploadLoading, setUploadLoading] = useState(false); // Added
   const [geminiLoading, setGeminiLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
@@ -81,6 +88,14 @@ export const Questions: React.FC = () => {
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0 });
   const [showMigrationConfirm, setShowMigrationConfirm] = useState(false);
+
+  useEffect(() => {
+    if (userProfile?.role === 'User' && !allowedGrades.includes(selectedGrade)) {
+      if (allowedGrades.length > 0) {
+        setSelectedGrade(allowedGrades[0]);
+      }
+    }
+  }, [userProfile, selectedGrade]);
 
   useEffect(() => {
     const checkDuplicate = async () => {
@@ -138,7 +153,7 @@ export const Questions: React.FC = () => {
       const subsData = subSnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
       
       // Fetch counts for each subject in this grade
-      const subsWithCounts = await Promise.all(
+      const subsWithCountsRaw = await Promise.all(
         subsData.map(async (sb) => {
           try {
             const countQuery = query(
@@ -154,6 +169,10 @@ export const Questions: React.FC = () => {
           }
         })
       );
+
+      const subsWithCounts = userProfile?.role === 'User'
+        ? subsWithCountsRaw.filter((s: any) => userProfile.allowedAccess?.some(a => a.grade === selectedGrade && a.subjectId === s.id))
+        : subsWithCountsRaw;
 
       setSubjects(subsWithCounts);
       
@@ -700,7 +719,7 @@ export const Questions: React.FC = () => {
               onChange={(e) => setSelectedGrade(parseInt(e.target.value))}
               className="bg-slate-900 border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
             >
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(g => (
+              {allowedGrades.map(g => (
                 <option key={g} value={g}>Grade {g}</option>
               ))}
             </select>
@@ -716,13 +735,15 @@ export const Questions: React.FC = () => {
               <option value="Tamil">Tamil</option>
             </select>
 
-            <button
-              onClick={() => setShowMigrationConfirm(true)}
-              className="p-2 bg-slate-700 hover:bg-slate-600 text-amber-400 rounded-lg transition-colors flex items-center justify-center ml-2"
-              title="Run Bucket Migration (Admin)"
-            >
-              <Database size={18} />
-            </button>
+            {userProfile?.role !== 'User' && (
+              <button
+                onClick={() => setShowMigrationConfirm(true)}
+                className="p-2 bg-slate-700 hover:bg-slate-600 text-amber-400 rounded-lg transition-colors flex items-center justify-center ml-2"
+                title="Run Bucket Migration (Admin)"
+              >
+                <Database size={18} />
+              </button>
+            )}
 
             <button
               onClick={() => openModal()}

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Plus, Edit2, Trash2, X, ChevronLeft, AlertTriangle } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 interface Subject {
   id: string;
@@ -18,6 +19,7 @@ interface Subject {
 export const Subjects: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
+  const { userProfile } = useAuth();
 
   // Grade & Medium Filter State
   const [selectedGrade, setSelectedGrade] = useState<number>(10);
@@ -167,6 +169,10 @@ export const Subjects: React.FC = () => {
     }
     setIsModalOpen(true);
   };
+
+  if (userProfile?.role === 'User') {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 p-8">
