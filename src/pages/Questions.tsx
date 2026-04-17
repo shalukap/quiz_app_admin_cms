@@ -319,7 +319,7 @@ export const Questions: React.FC = () => {
       const isDocx = file.name.endsWith('.docx') || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       const isPdf = file.type === 'application/pdf';
       
-      let promptText = "Extract the question text and its options from the attached content. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting. Extract all questions present.";
+      let promptText = "Extract the question text and its options from the attached content. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting. Extract all questions present. Do not include question numbers in the question text. Do not include option numbers/letters (like A., B., 1., 2.) in the options text.";
       let bodyData: any = {};
 
       if (isDocx) {
@@ -333,7 +333,7 @@ export const Questions: React.FC = () => {
             return;
          }
 
-         promptText = "Extract all question texts and options from the following text. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting.";
+         promptText = "Extract all question texts and options from the following text. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting. Do not include question numbers in the question text. Do not include option numbers/letters (like A., B., 1., 2.) in the options text.";
          
          bodyData = {
            contents: [{
@@ -344,7 +344,7 @@ export const Questions: React.FC = () => {
          };
       } else {
          if (isPdf) {
-            promptText = "Extract all question texts and options from the attached PDF document. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting.";
+            promptText = "Extract all question texts and options from the attached PDF document. Output only a JSON array of objects with the structure: [{ \"text\": \"...\", \"options\": [\"...\", \"...\"], \"correctIndex\": 0-indexed number if indicated, otherwise -1 }]. Do not include any descriptive text, header, or markdown formatting. Do not include question numbers in the question text. Do not include option numbers/letters (like A., B., 1., 2.) in the options text.";
          }
 
          const reader = new FileReader();
@@ -1098,6 +1098,13 @@ export const Questions: React.FC = () => {
                     rows={2}
                     value={formData.text}
                     onChange={e => setFormData({...formData, text: e.target.value})}
+                    onPaste={(e) => {
+                      const file = e.clipboardData.files?.[0];
+                      if (file && file.type.startsWith('image/')) {
+                        e.preventDefault();
+                        handleImageUpload(file);
+                      }
+                    }}
                     className={`w-full bg-slate-900 border ${isDuplicate ? 'border-red-500 ring-2 ring-red-500/20 text-red-400' : 'border-slate-700'} rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none resize-none transition-all`}
                     placeholder="Type the question here..."
                   />
@@ -1137,10 +1144,20 @@ export const Questions: React.FC = () => {
                       />
                       <label 
                         htmlFor="imageUpload"
-                        className="flex items-center justify-center border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-xl p-4 cursor-pointer transition-colors"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') document.getElementById('imageUpload')?.click();
+                        }}
+                        onPaste={(e) => {
+                          const file = e.clipboardData.files?.[0];
+                          if (file && file.type.startsWith('image/')) {
+                            handleImageUpload(file);
+                          }
+                        }}
+                        className="flex items-center justify-center border-2 border-dashed border-slate-700 hover:border-emerald-500/50 focus:border-emerald-500 outline-none rounded-xl p-4 cursor-pointer transition-colors"
                       >
                         <span className="text-sm text-slate-400">
-                          {uploadLoading ? 'Uploading...' : formData.imageUrl ? 'Change Image' : 'Click to Upload Image'}
+                          {uploadLoading ? 'Uploading...' : formData.imageUrl ? 'Change Image (or Paste)' : 'Click to Upload Image (or Paste)'}
                         </span>
                       </label>
                     </div>
@@ -1170,6 +1187,13 @@ export const Questions: React.FC = () => {
                             required
                             value={opt}
                             onChange={e => handleOptionChange(idx, e.target.value)}
+                            onPaste={(e) => {
+                              const file = e.clipboardData.files?.[0];
+                              if (file && file.type.startsWith('image/')) {
+                                e.preventDefault();
+                                handleImageUpload(file, idx);
+                              }
+                            }}
                             className={`flex-1 bg-slate-900 border ${formData.correctIndex === idx ? 'border-emerald-500/50' : 'border-slate-700'} rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none`}
                             placeholder={`Option ${idx + 1}`}
                           />
@@ -1205,9 +1229,19 @@ export const Questions: React.FC = () => {
                             />
                             <label 
                               htmlFor={`optionImage-${idx}`}
-                              className="flex items-center justify-center border border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-2 cursor-pointer transition-colors text-xs text-slate-400"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') document.getElementById(`optionImage-${idx}`)?.click();
+                              }}
+                              onPaste={(e) => {
+                                const file = e.clipboardData.files?.[0];
+                                if (file && file.type.startsWith('image/')) {
+                                  handleImageUpload(file, idx);
+                                }
+                              }}
+                              className="flex items-center justify-center border border-dashed border-slate-700 hover:border-emerald-500/50 focus:border-emerald-500 outline-none rounded-lg p-2 cursor-pointer transition-colors text-xs text-slate-400"
                             >
-                              {uploadLoading ? 'Uploading...' : formData.optionImages?.[idx] ? 'Change Image' : '+ Add Image'}
+                              {uploadLoading ? 'Uploading...' : formData.optionImages?.[idx] ? 'Change Image (or Paste)' : '+ Add Image (or Paste)'}
                             </label>
                           </div>
                         </div>
