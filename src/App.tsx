@@ -7,6 +7,7 @@ import { Subjects } from './pages/Subjects';
 import { Questions } from './pages/Questions';
 import { Users } from './pages/Users';
 import { Logs } from './pages/Logs';
+import { Reports } from './pages/Reports';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="/questions" element={<ProtectedRoute><Questions /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
           <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>
