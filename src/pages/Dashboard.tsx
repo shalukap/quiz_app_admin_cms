@@ -5,7 +5,6 @@ import { updatePassword } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { collection, getDocs, query, where, getCountFromServer } from 'firebase/firestore';
 import { Link, useNavigate } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export const Dashboard: React.FC = () => {
   const { logout, user, userProfile } = useAuth();
@@ -161,50 +160,61 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="h-[400px] w-full">
+          <div className="w-full">
             {chartLoading ? (
-              <div className="h-full flex flex-col items-center justify-center gap-4">
+              <div className="h-[400px] flex flex-col items-center justify-center gap-4">
                 <Loader2 className="animate-spin text-blue-500" size={32} />
                 <p className="text-slate-500 text-sm animate-pulse">Calculating data points...</p>
               </div>
             ) : chartData.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-2 border-2 border-dashed border-slate-700/50 rounded-2xl">
+              <div className="h-[400px] flex flex-col items-center justify-center text-slate-500 gap-2 border-2 border-dashed border-slate-700/50 rounded-2xl">
                 <AlertTriangle size={32} />
                 <p>No subject data found for Grade {selectedGrade}</p>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  layout="vertical"
-                  data={chartData}
-                  margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" horizontal={false} />
-                  <XAxis type="number" stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis 
-                    dataKey="name" 
-                    type="category" 
-                    stroke="#94A3B8" 
-                    fontSize={12} 
-                    width={90}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip 
-                    cursor={{ fill: 'rgba(51, 65, 85, 0.3)' }}
-                    contentStyle={{ backgroundColor: '#0F172A', border: '1px solid #334155', borderRadius: '12px' }}
-                    itemStyle={{ color: '#10B981', fontWeight: 'bold' }}
-                  />
-                  <Bar 
-                    dataKey="questions" 
-                    fill="#3B82F6" 
-                    radius={[0, 4, 4, 0]}
-                    barSize={20}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                {chartData.map((item, index) => {
+                  const maxQuestions = Math.max(...chartData.map(d => d.questions), 1);
+                  const percentage = (item.questions / maxQuestions) * 100;
+                  
+                  // Dynamic Color Logic
+                  const getBarColor = (count: number) => {
+                    if (count === 0) return 'from-slate-700 to-slate-600';
+                    if (count < 10) return 'from-rose-600 to-rose-400';
+                    if (count < 50) return 'from-amber-500 to-amber-300';
+                    return 'from-emerald-600 to-emerald-400';
+                  };
+
+                  const barColors = getBarColor(item.questions);
+                  
+                  return (
+                    <div key={item.name} className="group">
+                      <div className="flex justify-between items-center mb-1.5 px-1">
+                        <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">{item.name}</span>
+                        <span className={`text-xs font-bold transition-colors ${
+                          item.questions === 0 ? 'text-slate-500' : 
+                          item.questions < 10 ? 'text-rose-400' : 
+                          item.questions < 50 ? 'text-amber-400' : 'text-emerald-400'
+                        }`}>
+                          {item.questions} questions
+                        </span>
+                      </div>
+                      <div className="h-2.5 w-full bg-slate-900/50 rounded-full overflow-hidden border border-slate-700/30">
+                        <div 
+                          className={`h-full bg-gradient-to-r ${barColors} rounded-full transition-all duration-1000 ease-out`}
+                          style={{ 
+                            width: `${percentage}%`,
+                            transitionDelay: `${index * 50}ms`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
+
         </div>
         
         {/* Main Grid */}
