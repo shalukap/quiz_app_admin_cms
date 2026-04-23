@@ -800,7 +800,7 @@ export const Questions: React.FC = () => {
                           Bucket {question.bucketNumber}
                         </span>
                       )}
-                      <h3 className="text-lg font-medium text-white">{question.text}</h3>
+                      <h3 className="text-lg font-medium text-white whitespace-pre-wrap">{question.text}</h3>
                       <span className="bg-blue-600/10 text-blue-400 text-xs px-2 py-1 rounded font-medium flex items-center gap-1">
                         {question.timeLimit || 90} sec
                       </span>
@@ -813,7 +813,7 @@ export const Questions: React.FC = () => {
                           )}
                           <div className="flex-1">
                             <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Scenario Content:</span>
-                            <p className="text-sm text-slate-300 italic">"{question.scenarioText}"</p>
+                            <p className="text-sm text-slate-300 italic whitespace-pre-wrap">"{question.scenarioText}"</p>
                           </div>
                         </div>
                       </div>
@@ -822,7 +822,7 @@ export const Questions: React.FC = () => {
                     {question.options.map((opt, idx) => (
                       <div 
                         key={idx} 
-                        className={`px-4 py-2 rounded-lg text-sm border ${
+                        className={`px-4 py-2 rounded-lg text-sm border whitespace-pre-wrap ${
                           idx === question.correctIndex 
                             ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400 font-medium' 
                             : 'bg-slate-900/50 border-slate-700/50 text-slate-400'
@@ -1130,7 +1130,7 @@ export const Questions: React.FC = () => {
                   <label className="block text-sm font-medium text-slate-300 mb-1">Question Text</label>
                   <textarea
                     required
-                    rows={2}
+                    rows={4}
                     value={formData.text}
                     onChange={e => setFormData({...formData, text: e.target.value})}
                     onPaste={(e) => {
@@ -1140,7 +1140,7 @@ export const Questions: React.FC = () => {
                         handleImageUpload(file);
                       }
                     }}
-                    className={`w-full bg-slate-900 border ${isDuplicate ? 'border-red-500 ring-2 ring-red-500/20 text-red-400' : 'border-slate-700'} rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none resize-none transition-all`}
+                    className={`w-full bg-slate-900 border ${isDuplicate ? 'border-red-500 ring-2 ring-red-500/20 text-red-400' : 'border-slate-700'} rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none resize-y transition-all`}
                     placeholder="Type the question here..."
                   />
                   {isDuplicate && (

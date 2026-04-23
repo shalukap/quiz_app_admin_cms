@@ -13,7 +13,8 @@ export type LogAction =
   | 'DELETE_SUBJECT'
   | 'CREATE_QUESTION'
   | 'UPDATE_QUESTION'
-  | 'DELETE_QUESTION';
+  | 'DELETE_QUESTION'
+  | 'VIEW_LOGS';
 
 export const createLog = async (
   userId: string, 
@@ -21,6 +22,10 @@ export const createLog = async (
   action: LogAction, 
   details: string
 ) => {
+  if (!userId || !username) {
+    console.warn(`Skipping log creation: userId (${userId}) or username (${username}) is missing.`);
+    return;
+  }
   try {
     await addDoc(collection(db, 'logs'), {
       userId,
@@ -29,6 +34,7 @@ export const createLog = async (
       details,
       timestamp: serverTimestamp(),
     });
+    console.log(`Log created: ${action} for ${username}`);
   } catch (error) {
     console.error('Error creating log:', error);
   }

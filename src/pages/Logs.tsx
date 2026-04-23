@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { ChevronLeft, Clock, User, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { createLog } from '../utils/logger';
 
 interface LogEntry {
   id: string;
@@ -35,7 +36,7 @@ export const Logs: React.FC = () => {
       }
     };
 
-    if (userProfile?.role === 'Root') {
+    if (userProfile?.role?.toLowerCase() === 'root') {
       fetchUsers();
     }
   }, [userProfile]);
@@ -45,7 +46,8 @@ export const Logs: React.FC = () => {
       setLoading(true);
       try {
         let q;
-        if (userProfile?.role === 'Root') {
+        const isRoot = userProfile?.role?.toLowerCase() === 'root';
+        if (isRoot) {
           if (selectedUserId === 'all') {
             q = query(
               collection(db, 'logs'),
@@ -81,9 +83,14 @@ export const Logs: React.FC = () => {
       }
     };
 
-    if (userProfile) {
-      fetchLogs();
-    }
+    const initializeLogs = async () => {
+      if (userProfile) {
+        await createLog(userProfile.id, userProfile.username || userProfile.email, 'VIEW_LOGS', `Accessed the logs audit trail`);
+        await fetchLogs();
+      }
+    };
+
+    initializeLogs();
   }, [userProfile, selectedUserId]);
 
   if (!userProfile) {
@@ -109,17 +116,17 @@ export const Logs: React.FC = () => {
             </Link>
             <div>
               <h1 className="text-2xl font-bold text-white">
-                {userProfile.role === 'Root' ? 'System Logs' : 'My Activity Logs'}
+                {userProfile.role?.toLowerCase() === 'root' ? 'System Logs' : 'My Activity Logs'}
               </h1>
               <p className="text-sm text-slate-400">
-                {userProfile.role === 'Root' 
+                {userProfile.role?.toLowerCase() === 'root' 
                   ? 'Recent user activity and administrative changes' 
                   : 'Your recent actions and session history'}
               </p>
             </div>
           </div>
 
-          {userProfile.role === 'Root' && (
+          {userProfile.role?.toLowerCase() === 'root' && (
             <div className="flex items-center gap-3 bg-slate-800 p-2 rounded-xl border border-slate-700">
               <span className="text-sm text-slate-400 pl-2">Filter User:</span>
               <select

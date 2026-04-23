@@ -43,7 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const userDoc = await getDoc(userDocRef);
           
           if (userDoc.exists()) {
-            const profile = userDoc.data() as UserProfile;
+            const profile = { id: userDoc.id, ...userDoc.data() } as UserProfile;
             if (profile.status === 'Inactive') {
               alert('Your account is inactive. Please contact the administrator.');
               await signOut(auth);
@@ -54,7 +54,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               // Log login once per session
               const sessionLogged = sessionStorage.getItem(`logged_${firebaseUser.uid}`);
               if (!sessionLogged) {
-                createLog(profile.id, profile.username || profile.email, 'LOGIN', `User logged in from ${window.location.hostname}`);
+                const userAgent = window.navigator.userAgent;
+                const platform = window.navigator.platform;
+                createLog(profile.id, profile.username || profile.email, 'LOGIN', `Logged in via ${platform} (${userAgent.includes('Chrome') ? 'Chrome' : 'Browser'})`);
                 sessionStorage.setItem(`logged_${firebaseUser.uid}`, 'true');
               }
             }
