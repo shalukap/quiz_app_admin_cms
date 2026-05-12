@@ -91,7 +91,7 @@ export const Subjects: React.FC = () => {
 
   useEffect(() => {
     fetchSubjects();
-  }, [selectedGrade]);
+  }, [selectedGrade, selectedMedium]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
