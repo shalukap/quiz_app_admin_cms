@@ -144,24 +144,32 @@ export const Questions: React.FC = () => {
     return () => clearTimeout(debounce);
   }, [formData.text, formData.subjectId, formData.grade, formData.medium, questions, editingId, selectedSubjectId, selectedGrade, selectedMedium]);
 
-  const fetchSubjects = async () => {
+  const fetchSubjects = async (grade: number = selectedGrade, medium: string = selectedMedium) => {
     try {
-      const q = query(
+      let q = query(
         collection(db, 'subjects'),
-        where('grade', '==', selectedGrade)
+        where('grade', '==', grade)
       );
+      
+      if (medium) {
+        q = query(q, where('medium', '==', medium));
+      }
+
       const subSnapshot = await getDocs(q);
       const subsData = subSnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
       
-      // Fetch counts for each subject in this grade
+      // Fetch counts for each subject in this grade/medium
       const subsWithCountsRaw = await Promise.all(
         subsData.map(async (sb) => {
           try {
-            const countQuery = query(
+            let countQuery = query(
               collection(db, 'questions'),
               where('subjectId', '==', sb.id),
-              where('grade', '==', selectedGrade)
+              where('grade', '==', grade)
             );
+            if (medium) {
+              countQuery = query(countQuery, where('medium', '==', medium));
+            }
             const countSnapshot = await getCountFromServer(countQuery);
             return { ...sb, questionCount: countSnapshot.data().count };
           } catch (err) {
@@ -172,20 +180,20 @@ export const Questions: React.FC = () => {
       );
 
       const subsWithCounts = userProfile?.role === 'User'
-        ? subsWithCountsRaw.filter((s: any) => userProfile.allowedAccess?.some(a => a.grade === selectedGrade && a.subjectId === s.id))
+        ? subsWithCountsRaw.filter((s: any) => userProfile.allowedAccess?.some(a => a.grade === grade && a.subjectId === s.id))
         : subsWithCountsRaw;
 
       setSubjects(subsWithCounts);
       
-      // Update selected subject if current one is not in the new list
-      if (subsWithCounts.length > 0) {
-        if (!subsWithCounts.find((s: Subject) => s.id === selectedSubjectId)) {
-          setSelectedSubjectId(subsWithCounts[0].id);
-          setFormData(prev => ({ ...prev, subjectId: subsWithCounts[0].id }));
+      // Update selected subject if current one is not in the new list (only if we are updating for the main filter)
+      if (grade === selectedGrade && (medium === selectedMedium || (!medium && !selectedMedium))) {
+        if (subsWithCounts.length > 0) {
+          if (!subsWithCounts.find((s: Subject) => s.id === selectedSubjectId)) {
+            setSelectedSubjectId(subsWithCounts[0].id);
+          }
+        } else {
+          setSelectedSubjectId('');
         }
-      } else {
-        setSelectedSubjectId('');
-        setFormData(prev => ({ ...prev, subjectId: '' }));
       }
     } catch (error) {
       console.error("Error fetching subjects", error);
@@ -493,8 +501,8 @@ export const Questions: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchSubjects();
-  }, [selectedGrade]);
+    fetchSubjects(selectedGrade, selectedMedium);
+  }, [selectedGrade, selectedMedium]);
 
   const fetchQuestions = async () => {
     if (!selectedSubjectId) return;
@@ -574,6 +582,7 @@ export const Questions: React.FC = () => {
           setScenarioBatchQuestions([]);
           setCurrentScenarioStep(1);
           setScenarioCount(1);
+          fetchSubjects(selectedGrade, selectedMedium);
         }
       } else {
         // Normal Single Question Save / Edit
@@ -604,6 +613,7 @@ export const Questions: React.FC = () => {
            setIsModalOpen(false);
            setExtractedQuestions([]);
            setCurrentExtractedIndex(-1);
+           fetchSubjects(selectedGrade, selectedMedium);
         }
       }
       fetchQuestions();
@@ -665,6 +675,7 @@ export const Questions: React.FC = () => {
         scenarioImageUrl: question.scenarioImageUrl || '',
         bucketNumber: question.bucketNumber || 0
       });
+      fetchSubjects(question.grade, question.medium || 'English');
     } else {
       setEditingId(null);
       const needs5 = selectedGrade === 12 || selectedGrade === 13;
@@ -688,6 +699,11 @@ export const Questions: React.FC = () => {
     setCurrentScenarioStep(1);
     setScenarioBatchQuestions([]);
     setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    fetchSubjects(selectedGrade, selectedMedium);
   };
 
   const handleOptionChange = (index: number, value: string) => {
@@ -863,7 +879,7 @@ export const Questions: React.FC = () => {
             <div className="bg-slate-800 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl my-8 flex flex-col max-h-[calc(100vh-4rem)]">
               <div className="flex-shrink-0 bg-slate-800 p-6 border-b border-slate-700 flex justify-between items-center rounded-t-2xl z-10">
                 <h3 className="text-lg font-semibold">{editingId ? 'Edit Question' : 'New Question'}</h3>
-                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                <button onClick={closeModal} className="text-slate-400 hover:text-white transition-colors">
                   <X size={20} />
                 </button>
               </div>
@@ -1094,6 +1110,7 @@ export const Questions: React.FC = () => {
                             correctIndex: prev.correctIndex >= opts.length ? 0 : prev.correctIndex
                           };
                         });
+                        fetchSubjects(newGrade, formData.medium);
                       }}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                     >
@@ -1116,7 +1133,11 @@ export const Questions: React.FC = () => {
                     <label className="block text-sm font-medium text-slate-300 mb-1">Medium</label>
                     <select
                       value={formData.medium}
-                      onChange={e => setFormData({ ...formData, medium: e.target.value })}
+                      onChange={e => {
+                        const newMedium = e.target.value;
+                        setFormData({ ...formData, medium: newMedium });
+                        fetchSubjects(formData.grade, newMedium);
+                      }}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                     >
                       <option value="English">English</option>
@@ -1290,7 +1311,7 @@ export const Questions: React.FC = () => {
               <div className="pt-4 flex gap-3 border-t border-slate-700/50">
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={closeModal}
                     className="px-6 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
                   >
                     Cancel
